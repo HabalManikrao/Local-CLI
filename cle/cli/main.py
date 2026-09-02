@@ -91,6 +91,41 @@ def models(ctx: typer.Context) -> None:
 
 
 @app.command()
+def search(
+    ctx: typer.Context,
+    pattern: str = typer.Argument(..., help="Text or regex to search for."),
+    ignore_case: bool = typer.Option(False, "--ignore-case", "-i", help="Case-insensitive."),
+    fixed: bool = typer.Option(False, "--fixed", "-F", help="Literal string (no regex)."),
+) -> None:
+    """Exact text search across the project (ripgrep, with a Python fallback)."""
+    _run(commands.cmd_search, _ctx(ctx), pattern, ignore_case, fixed)
+
+
+@app.command()
+def symbol(
+    ctx: typer.Context,
+    name: str = typer.Argument(..., help="Symbol name to look up in the index."),
+) -> None:
+    """Find a class/interface/method/function/field by name (structural search)."""
+    _run(commands.cmd_symbol, _ctx(ctx), name)
+
+
+@app.command()
+def explain(
+    ctx: typer.Context,
+    file: str = typer.Argument(..., help="Path (relative to project root) to explain."),
+) -> None:
+    """Explain a source file using the reasoning model and its symbol outline."""
+    _run(commands.cmd_explain, _ctx(ctx), file)
+
+
+@app.command()
+def embed(ctx: typer.Context) -> None:
+    """Build the local semantic index (embeddings) for semantic search."""
+    _run(commands.cmd_embed, _ctx(ctx))
+
+
+@app.command()
 def ask(ctx: typer.Context, question: str = typer.Argument(..., help="Your question.")) -> None:
     """Ask a one-shot question (routed to the 'fast' model)."""
     _run(commands.cmd_ask, _ctx(ctx), question)

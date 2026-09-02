@@ -11,7 +11,10 @@ from pathlib import Path
 
 from .. import __version__, diagnostics
 from ..config import init_project_config, set_project_value
-from ..errors import CleError
+from ..context.embeddings import EmbeddingStore
+from ..context.manager import ContextManager
+from ..context.retrieval import ContextEngine
+from ..errors import CleError, ProjectError
 from ..indexing.repository import RepositoryIndex
 from ..models.base import Message
 from ..models.registry import ROLES
@@ -221,7 +224,8 @@ def cmd_ask(ctx: AppContext, question: str) -> int:
     except CleError as exc:
         ui.print_error(exc)
         return 1
-    ui.console.print(result.text)
+    # markup=False: model output may contain brackets that are not Rich markup.
+    ui.console.print(result.text, markup=False)
     return 0
 
 
@@ -256,7 +260,7 @@ def cmd_chat(ctx: AppContext) -> int:
         try:
             for chunk in ctx.provider.stream(model, history):
                 pieces.append(chunk)
-                ui.console.print(chunk, end="")
+                ui.console.print(chunk, end="", markup=False)
         except CleError as exc:
             ui.console.print()
             ui.print_error(exc)
@@ -264,3 +268,160 @@ def cmd_chat(ctx: AppContext) -> int:
             continue
         ui.console.print()
         history.append(Message("assistant", "".join(pieces)))
+
+
+# -- context / retrieval helpers -------------------------------------------
+
+def _require_index(ctx: AppContext) -> RepositoryIndex:
+    index = RepositoryIndex(ctx.project.root)
+    if not index.is_built():
+        index.close()
+        raise ProjectError(
+            "The project is not indexed yet.",
+            remedy="Build the index first:\n  cle index",
+        )
+    return index
+
+
+def _context_engine(ctx: AppContext, index: RepositoryIndex) -> ContextEngine:
+    return ContextEngine(
+        ctx.project.root, index, ctx.provider, ctx.registry, ctx.config
+    )
+
+
+# -- cle search "<pattern>" -------------------------------------------------
+
+def cmd_search(ctx: AppContext, pattern: str, ignore_case: bool, fixed: bool) -> int:
+    from ..tools.search import search as exact_search
+
+    matches = exact_search(
+        ctx.project.root, pattern, ignore_case=ignore_case, fixed_string=fixed
+    )
+    if not matches:
+        ui.console.print(f"No matches for [bold]{pattern}[/bold].")
+        return 0
+    table = ui.status_table(f"search: {pattern}")
+    table.columns[0].header = "Location"
+    table.columns[1].header = "Src"
+    table.columns[2].header = "Line"
+    for m in matches:
+        table.add_row(f"{m.path}:{m.line}", m.source.value, m.text.strip()[:120])
+    ui.console.print(table)
+    ui.console.print(f"\n{len(matches)} match(es).")
+    ctx.audit.event("search", pattern=pattern, matches=len(matches))
+    return 0
+
+
+# -- cle symbol <name> ------------------------------------------------------
+
+def cmd_symbol(ctx: AppContext, name: str) -> int:
+    try:
+        index = _require_index(ctx)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    try:
+        symbols = index.find_symbols(name)
+    finally:
+        index.close()
+    if not symbols:
+        ui.console.print(f"No symbol named [bold]{name}[/bold] in the index.")
+        return 0
+    table = ui.status_table(f"symbol: {name}")
+    table.columns[0].header = "Kind"
+    table.columns[1].header = "Parent"
+    table.columns[2].header = "Location"
+    for s in symbols:
+        span = f"{s['line_start']}-{s['line_end']}" if s["line_end"] else str(s["line_start"])
+        table.add_row(s["kind"], s["parent"] or "—", f"{s['file_path']}:{span}")
+    ui.console.print(table)
+    ctx.audit.event("symbol", name=name, hits=len(symbols))
+    return 0
+
+
+# -- cle explain <file> -----------------------------------------------------
+
+def cmd_explain(ctx: AppContext, file: str) -> int:
+    target = (ctx.project.root / file).resolve()
+    if not target.exists():
+        ui.print_error(ProjectError(
+            f"File not found: {file}",
+            remedy="Check the path (relative to the project root).",
+        ))
+        return 1
+    try:
+        model = ctx.router.model_for_intent("architecture")
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+
+    rel = target.relative_to(ctx.project.root).as_posix()
+    try:
+        source = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        ui.print_error(ProjectError(f"Could not read {file}: {exc}"))
+        return 1
+
+    # Structural outline from the index (if available), always LOCAL evidence.
+    outline = ""
+    index = RepositoryIndex(ctx.project.root)
+    try:
+        if index.is_built():
+            syms = index.symbols_in_file(rel)
+            if syms:
+                outline = "\n".join(
+                    f"- {s['kind']} {s['name']} (line {s['line_start']})" for s in syms
+                )
+    finally:
+        index.close()
+
+    system = (
+        "You are a senior engineer explaining code from the user's LOCAL project. "
+        "Base your explanation only on the provided source. Cite file:line where useful."
+    )
+    prompt = (
+        f"File: {rel}\n\n"
+        + (f"Symbol outline (LOCAL):\n{outline}\n\n" if outline else "")
+        + f"Source:\n```\n{source[:16000]}\n```\n\n"
+        "Explain what this file does, its key responsibilities, and how the "
+        "pieces fit together."
+    )
+    ctx.audit.event("explain", file=rel, model=model)
+    try:
+        result = ctx.provider.generate(model, prompt, system=system)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    ui.console.print(result.text, markup=False)
+    return 0
+
+
+# -- cle embed --------------------------------------------------------------
+
+def cmd_embed(ctx: AppContext) -> int:
+    model = ctx.config.get("models.embedding", "") or ""
+    if not model:
+        ui.print_error(CleError(
+            "No embedding model configured.",
+            remedy="Pull one and assign it:\n"
+                   "  ollama pull nomic-embed-text\n"
+                   "  cle model use embedding nomic-embed-text",
+        ))
+        return 1
+    try:
+        index = _require_index(ctx)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    store = EmbeddingStore(index.db, ctx.provider, model)
+    try:
+        with ui.console.status(f"embedding chunks with {model}"):
+            count = store.build(ctx.project.root)
+    except CleError as exc:
+        index.close()
+        ui.print_error(exc)
+        return 1
+    index.close()
+    ui.console.print(f"Embedded [bold]{count}[/bold] chunks with [bold]{model}[/bold].")
+    ctx.audit.event("embed", model=model, chunks=count)
+    return 0

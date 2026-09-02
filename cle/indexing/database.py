@@ -51,6 +51,17 @@ CREATE TABLE IF NOT EXISTS imports (
     line    INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS embeddings (
+    id      INTEGER PRIMARY KEY,
+    path    TEXT NOT NULL,
+    start   INTEGER NOT NULL,
+    end     INTEGER NOT NULL,
+    text    TEXT NOT NULL,
+    model   TEXT NOT NULL,
+    dim     INTEGER NOT NULL,
+    vector  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
 CREATE INDEX IF NOT EXISTS idx_symbols_kind ON symbols(kind);
 CREATE INDEX IF NOT EXISTS idx_files_language ON files(language);
