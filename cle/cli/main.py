@@ -134,6 +134,17 @@ def embed(ctx: typer.Context) -> None:
 
 
 @app.command()
+def code(
+    ctx: typer.Context,
+    request: str = typer.Argument(..., help="What you want changed."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Apply without prompting."),
+    no_apply: bool = typer.Option(False, "--no-apply", help="Plan only; don't edit."),
+) -> None:
+    """Plan and (after approval) apply code changes for a request."""
+    _run(commands.cmd_code, _ctx(ctx), request, yes, no_apply)
+
+
+@app.command()
 def ask(ctx: typer.Context, question: str = typer.Argument(..., help="Your question.")) -> None:
     """Ask a one-shot question (routed to the 'fast' model)."""
     _run(commands.cmd_ask, _ctx(ctx), question)

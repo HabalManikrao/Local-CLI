@@ -16,9 +16,12 @@ from ..context.manager import ContextManager
 from ..context.retrieval import ContextEngine
 from ..errors import CleError, ProjectError
 from ..indexing.repository import RepositoryIndex
+from ..agents.coding import CodingAgent
 from ..memory.project import KINDS, ProjectMemory
 from ..models.base import Message
+from ..safety.permissions import PermissionGuard, PermissionPolicy, approve_all
 from ..tools.checkpoints import CheckpointStore
+from ..tools.filesystem import FileSystem
 from ..tools.git import GitRepo
 from ..models.registry import ROLES
 from ..project import detect_project, git_is_available
@@ -639,4 +642,116 @@ def cmd_rollback(ctx: AppContext, checkpoint_id: int | None, yes: bool) -> int:
             "and were left in place:\n  " + "\n  ".join(new_files)
         )
     ctx.audit.event("rollback", id=cp.id, sha=cp.sha)
+    return 0
+
+
+# -- cle code "<request>" ---------------------------------------------------
+
+def _render_plan(plan) -> None:
+    ui.console.print(f"\n[bold]Goal[/bold]: {plan.goal}")
+    if plan.files_inspected:
+        ui.console.print(f"[bold]Files inspected[/bold]: {', '.join(plan.files_inspected)}")
+    if plan.reasoning:
+        ui.console.print(f"[bold]Reasoning[/bold]: {plan.reasoning}")
+    ui.console.print("\n[bold]Proposed changes[/bold]:")
+    if not plan.changes:
+        ui.console.print("  (none)")
+    for c in plan.changes:
+        loc = c.get("path", "?")
+        if c.get("op", "").upper() == "RENAME_FILE":
+            loc += f" -> {c.get('new_path')}"
+        ui.console.print(f"  • {c.get('op')}: {loc} — {c.get('explanation', '')}")
+    if plan.expected_impact:
+        ui.console.print(f"\n[bold]Expected impact[/bold]: {plan.expected_impact}")
+    if plan.tests_to_run:
+        ui.console.print(f"[bold]Tests to run[/bold]: {', '.join(plan.tests_to_run)}")
+    if plan.risks:
+        ui.console.print("[bold]Risks[/bold]:")
+        for r in plan.risks:
+            ui.console.print(f"  ! {r}")
+
+
+def cmd_code(ctx: AppContext, request: str, yes: bool, no_apply: bool) -> int:
+    agent = CodingAgent(
+        ctx.project.root, ctx.provider, ctx.router, ctx.registry, ctx.config
+    )
+    ctx.audit.event("code", request=request)
+    try:
+        plan = agent.plan(request)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+
+    _render_plan(plan)
+
+    # Show the concrete diff.
+    if plan.edit_plan.ops:
+        preview = plan.edit_plan.preview(ctx.project.root)
+        if preview.strip():
+            from rich.syntax import Syntax
+            ui.console.print("\n[bold]Diff preview[/bold]:")
+            ui.console.print(Syntax(preview, "diff", theme="ansi_dark", word_wrap=False))
+
+    if plan.validation_errors:
+        ui.print_error(CleError(
+            "The proposed changes did not validate:\n- "
+            + "\n- ".join(plan.validation_errors),
+            remedy="Re-run the request, optionally rephrasing, or edit manually.",
+        ))
+        return 1
+
+    if not plan.edit_plan.ops:
+        ui.console.print("\nNo file changes proposed.")
+        return 0
+
+    if no_apply:
+        ui.console.print("\n[dim]--no-apply: stopping after the plan.[/dim]")
+        return 0
+
+    # Approval (once, for the whole batch).
+    if not yes:
+        confirm = ui.console.input(
+            f"\nApply {len(plan.edit_plan.ops)} change(s)? [y/N]: "
+        ).strip().lower()
+        if confirm not in {"y", "yes"}:
+            ui.console.print("Aborted. No files were modified.")
+            return 0
+
+    # Checkpoint before editing (safety), if this is a git repo.
+    repo = GitRepo(ctx.project.root)
+    if repo.is_repo():
+        try:
+            sha = repo.create_checkpoint()
+            status = repo.status()
+            cp = CheckpointStore(ctx.project.root).add(
+                sha, status.branch, f"before code: {request[:40]}", status.untracked_files
+            )
+            ui.console.print(f"[dim]checkpoint #{cp.id} ({sha[:10]}) created[/dim]")
+        except CleError:
+            pass  # non-fatal; proceed
+    elif ctx.config.get("safety.require_git", True):
+        ui.console.print(
+            "[yellow]note[/yellow]: not a git repo — no checkpoint. "
+            "Run [bold]git init[/bold] for rollback safety."
+        )
+
+    # The user approved the batch; apply through a guard that permits the
+    # approved writes but still honors DENY policy (e.g. delete disabled).
+    policy = PermissionPolicy.from_config(ctx.config)
+    guard = PermissionGuard(policy, approver=approve_all)
+    fs = FileSystem(ctx.project.root, guard)
+    try:
+        results = agent.apply(plan, fs)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    for r in results:
+        ui.console.print(f"  [green]✓[/green] {r}")
+    ctx.audit.event("code_applied", files=[op.path for op in plan.edit_plan.ops])
+    ui.console.print(
+        f"\nApplied {len(results)} change(s). Review with [bold]cle diff[/bold]; "
+        "undo with [bold]cle rollback[/bold]."
+    )
+    if plan.tests_to_run:
+        ui.console.print("Next: run your tests — [bold]cle test[/bold].")
     return 0
