@@ -5,9 +5,10 @@ understands your codebase before acting, uses the appropriate local model for
 each task, makes controlled changes, verifies them through tests, and keeps an
 auditable trail — all on your machine, no cloud required.
 
-> Status: **Milestone 1 (CLI Foundation)**. Later milestones add repository
-> indexing, semantic/structural retrieval, project memory, and engineering
-> agents. See [`docs/ARCHITECTURE-AUDIT.md`](docs/ARCHITECTURE-AUDIT.md).
+> Status: **all milestones (0–12) implemented**. See
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the big picture and
+> [`docs/ARCHITECTURE-AUDIT.md`](docs/ARCHITECTURE-AUDIT.md) for the original
+> audit.
 
 ## Requirements
 
@@ -36,17 +37,49 @@ cle ask "Explain this project"   # one-shot question
 cle chat                         # interactive chat
 ```
 
-## Commands (Milestone 1)
+## Commands
+
+**Setup & info**
 
 | Command | Purpose |
 |---|---|
 | `cle init` | Initialize a CLE project in the current directory |
 | `cle doctor` | Validate Python, Git, ripgrep, SQLite, Ollama, GPU, models, project |
-| `cle status` | Show project, provider, model roles, index status |
-| `cle models` | List configured roles and installed Ollama models |
-| `cle model use <role> <model>` | Assign a model to a role (fast/coding/reasoning/embedding) |
-| `cle ask "<question>"` | One-shot question (routed to the `fast` model) |
-| `cle chat` | Interactive chat session |
+| `cle status` / `cle dashboard` | Project/provider/model/index status (dashboard = panel view) |
+| `cle models` · `cle model use <role> <model>` | List / assign models to roles |
+
+**Understand the code**
+
+| Command | Purpose |
+|---|---|
+| `cle index` | Build the local code index (files/symbols/imports) |
+| `cle search "<pat>"` (`-i` `-F`) | Exact search (ripgrep) |
+| `cle symbol <name>` | Structural lookup by symbol name |
+| `cle explain <file>` | Explain a file (reasoning model + symbol outline) |
+| `cle embed` | Build the semantic index (needs an embedding model) |
+| `cle ask "<q>"` · `cle chat` | One-shot / interactive chat |
+
+**Memory**
+
+| Command | Purpose |
+|---|---|
+| `cle memory` · `memory show [kind]` · `memory add` · `memory set` · `memory clear` | Project-scoped memory |
+
+**Change, test, debug (safe)**
+
+| Command | Purpose |
+|---|---|
+| `cle code "<request>"` | Plan → preview diff → approve → apply |
+| `cle diff` · `cle checkpoint` · `cle rollback` | Git safety |
+| `cle test` · `cle debug` · `cle fix-tests` | Run/diagnose/auto-fix tests (bounded) |
+| `cle autopilot "<task>"` | Autonomous plan→edit→test→repair (bounded) |
+
+**Java / Winium & benchmarking**
+
+| Command | Purpose |
+|---|---|
+| `cle java analyze` · `cle winium analyze` | Evidence-backed static findings (no changes) |
+| `cle benchmark` | Benchmark models/agents on local tasks; store results |
 
 ## Configuration
 

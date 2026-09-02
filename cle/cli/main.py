@@ -196,6 +196,18 @@ def autopilot(
 
 
 @app.command()
+def benchmark(ctx: typer.Context) -> None:
+    """Benchmark the configured models/agents on local tasks; store results."""
+    _run(commands.cmd_benchmark, _ctx(ctx))
+
+
+@app.command()
+def dashboard(ctx: typer.Context) -> None:
+    """Show a status dashboard (project, models, index, memory, git)."""
+    _run(commands.cmd_dashboard, _ctx(ctx))
+
+
+@app.command()
 def diff(ctx: typer.Context) -> None:
     """Show the working-tree git diff and status."""
     _run(commands.cmd_diff, _ctx(ctx))

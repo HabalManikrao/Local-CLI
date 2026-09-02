@@ -1093,3 +1093,139 @@ def cmd_autopilot(ctx: AppContext, task: str, max_iterations: int | None, yes: b
     ctx.audit.event("autopilot_end", task=task, passed=passed,
                     iterations=iterations_used, files=sorted(changed_files))
     return 0 if passed else 1
+
+
+# -- cle benchmark ----------------------------------------------------------
+
+def _system_metrics() -> dict:
+    import os
+    from .. import diagnostics
+    metrics: dict = {"cpu_count": os.cpu_count()}
+    smi = diagnostics._find_nvidia_smi()
+    if smi:
+        import subprocess
+        try:
+            proc = subprocess.run(
+                [smi, "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=15,
+            )
+            line = (proc.stdout or "").strip().splitlines()
+            if proc.returncode == 0 and line:
+                metrics["gpu"] = line[0].strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    metrics.setdefault("gpu", "unknown")
+    return metrics
+
+
+def cmd_benchmark(ctx: AppContext) -> int:
+    import json
+    import tempfile
+    from dataclasses import asdict
+    from datetime import datetime
+
+    from ..benchmark.harness import BenchContext, BenchmarkSuite, summarize
+    from ..benchmark.tasks import default_suite
+
+    workroot = Path(tempfile.mkdtemp(prefix="cle-bench-"))
+    bctx = BenchContext(ctx.provider, ctx.router, ctx.registry, ctx.config, workroot)
+    suite = BenchmarkSuite(default_suite())
+
+    ui.console.print("[bold]Running benchmark suite...[/bold]")
+    with ui.console.status("benchmarking"):
+        results = suite.run(bctx)
+    summary = summarize(results)
+
+    table = ui.status_table("Benchmark results")
+    table.columns[0].header = "Task"
+    table.columns[1].header = "Result"
+    table.columns[2].header = "Latency / note"
+    for r in results:
+        if r.skipped:
+            status = "[dim]SKIP[/dim]"
+        elif r.success:
+            status = "[green]PASS[/green]"
+        else:
+            status = "[red]FAIL[/red]"
+        detail = f"{r.latency_s:.3f}s  iters={r.iterations}  {r.note}" if not r.skipped else r.note
+        table.add_row(f"{r.name} ({r.category})", status, detail)
+    ui.console.print(table)
+    ui.console.print(
+        f"\n{summary['passed']}/{summary['ran']} passed"
+        + (f" ({summary['success_rate']:.0%})" if summary["success_rate"] is not None else "")
+        + f", {summary['skipped']} skipped, {summary['total_latency_s']:.2f}s total."
+    )
+
+    # Store results locally.
+    out_dir = ctx.project.root / ".cle" / "benchmarks"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    n = len(list(out_dir.glob("benchmark-*.json"))) + 1
+    out_path = out_dir / f"benchmark-{n:03d}.json"
+    payload = {
+        "at": datetime.now().isoformat(timespec="seconds"),
+        "models": ctx.registry.all_roles(),
+        "system": _system_metrics(),
+        "summary": summary,
+        "results": [asdict(r) for r in results],
+    }
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    ui.console.print(f"Saved: {out_path}")
+    ctx.audit.event("benchmark", passed=summary["passed"], ran=summary["ran"])
+    return 0
+
+
+# -- cle dashboard (optional TUI snapshot) ----------------------------------
+
+def cmd_dashboard(ctx: AppContext) -> int:
+    from rich.columns import Columns
+    from rich.panel import Panel
+
+    p = ctx.project
+    proj = Panel(
+        f"root: {p.root}\ninitialized: {'yes' if p.is_initialized else 'no'}\n"
+        f"git: {'yes' if p.is_git_repo else 'no'}",
+        title="Project", border_style="cyan",
+    )
+    roles = ctx.registry.all_roles()
+    models = Panel(
+        "\n".join(f"{r}: {m or '—'}" for r, m in roles.items())
+        + f"\nprovider: {ctx.config.get('provider.host')}",
+        title="Models", border_style="magenta",
+    )
+
+    # Index
+    index_line = "not indexed"
+    if (p.cle_dir / "index" / "index.db").exists():
+        idx = RepositoryIndex(p.root)
+        try:
+            c = idx.counts()
+            index_line = f"{c['files']} files\n{c['symbols']} symbols\n{c['imports']} imports"
+        finally:
+            idx.close()
+    index_panel = Panel(index_line, title="Index", border_style="green")
+
+    # Memory
+    mem_line = "n/a"
+    if p.is_initialized:
+        mem = ProjectMemory(p.root)
+        try:
+            s = mem.summary()
+            mem_line = "\n".join(f"{k}: {v}" for k, v in s.items()) or "empty"
+        finally:
+            mem.close()
+    mem_panel = Panel(mem_line, title="Memory", border_style="yellow")
+
+    # Git status
+    git_line = "not a repo"
+    repo = GitRepo(p.root)
+    if repo.is_repo():
+        st = repo.status()
+        git_line = (f"branch: {st.branch}\n"
+                    + ("clean" if st.clean else
+                       f"{len(st.changed_files)} changed, {len(st.untracked_files)} untracked"))
+    git_panel = Panel(git_line, title="Git", border_style="blue")
+
+    ui.console.print(Panel("[bold]Local CLE — status dashboard[/bold]", border_style="white"))
+    ui.console.print(Columns([proj, models], equal=True, expand=True))
+    ui.console.print(Columns([index_panel, mem_panel, git_panel], equal=True, expand=True))
+    return 0
