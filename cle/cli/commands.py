@@ -912,3 +912,55 @@ def cmd_fix_tests(ctx: AppContext, max_iterations: int | None, yes: bool) -> int
     )
     ctx.audit.event("fix_tests", iterations=limit, result="exhausted")
     return 1
+
+
+# -- cle java analyze / winium analyze --------------------------------------
+
+_SEV_STYLE = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "cyan", "INFO": "dim"}
+
+
+def _render_findings(title: str, findings) -> None:
+    if not findings:
+        ui.console.print(f"[green]{title}: no findings.[/green]")
+        return
+    counts: dict[str, int] = {}
+    for f in findings:
+        counts[f.severity] = counts.get(f.severity, 0) + 1
+    summary = "  ".join(f"{sev}={n}" for sev, n in sorted(counts.items()))
+    ui.console.print(f"[bold]{title}[/bold] — {len(findings)} finding(s): {summary}\n")
+    for f in findings:
+        style = _SEV_STYLE.get(f.severity, "white")
+        ui.console.print(f"[{style}]{f.severity}[/{style}]  [bold]{f.title}[/bold]  "
+                         f"[dim]({f.category})[/dim]")
+        ui.console.print(f"  File: {f.file}")
+        ui.console.print(f"  Line: {f.line}")
+        if f.snippet:
+            ui.console.print(f"  Code: {f.snippet}", markup=False)
+        ui.console.print(f"  Recommendation: {f.recommendation}\n")
+
+
+def _has_java(ctx: AppContext) -> bool:
+    from ..analysis.base import iter_java_files
+    return bool(iter_java_files(ctx.project.root))
+
+
+def cmd_java_analyze(ctx: AppContext) -> int:
+    from ..analysis.java import analyze_java
+    if not _has_java(ctx):
+        ui.console.print("No Java files found under the project.")
+        return 0
+    findings = analyze_java(ctx.project.root)
+    _render_findings("Java analysis", findings)
+    ctx.audit.event("java_analyze", findings=len(findings))
+    return 0
+
+
+def cmd_winium_analyze(ctx: AppContext) -> int:
+    from ..analysis.winium import analyze_winium
+    if not _has_java(ctx):
+        ui.console.print("No Java files found under the project.")
+        return 0
+    findings = analyze_winium(ctx.project.root)
+    _render_findings("Winium analysis", findings)
+    ctx.audit.event("winium_analyze", findings=len(findings))
+    return 0

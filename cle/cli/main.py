@@ -33,6 +33,12 @@ memory_app = typer.Typer(
 )
 app.add_typer(memory_app, name="memory")
 
+# `cle java ...` and `cle winium ...` analysis groups.
+java_app = typer.Typer(help="Java code intelligence.")
+app.add_typer(java_app, name="java")
+winium_app = typer.Typer(help="Winium automation-framework intelligence.")
+app.add_typer(winium_app, name="winium")
+
 
 def _version_callback(value: bool) -> None:
     if value:
@@ -272,6 +278,18 @@ def memory_clear(
 ) -> None:
     """Clear all project memory."""
     _run(commands.cmd_memory_clear, _ctx(ctx), yes)
+
+
+@java_app.command("analyze")
+def java_analyze(ctx: typer.Context) -> None:
+    """Analyze Java code for quality issues (evidence-backed; no changes)."""
+    _run(commands.cmd_java_analyze, _ctx(ctx))
+
+
+@winium_app.command("analyze")
+def winium_analyze(ctx: typer.Context) -> None:
+    """Analyze Winium automation code for smells (evidence-backed; no changes)."""
+    _run(commands.cmd_winium_analyze, _ctx(ctx))
 
 
 if __name__ == "__main__":  # pragma: no cover
