@@ -18,6 +18,8 @@ from ..errors import CleError, ProjectError
 from ..indexing.repository import RepositoryIndex
 from ..memory.project import KINDS, ProjectMemory
 from ..models.base import Message
+from ..tools.checkpoints import CheckpointStore
+from ..tools.git import GitRepo
 from ..models.registry import ROLES
 from ..project import detect_project, git_is_available
 from ..runtime import AppContext
@@ -543,3 +545,98 @@ def cmd_memory_remove(ctx: AppContext, entry_id: int) -> int:
         return 0
     ui.console.print(f"No entry #{entry_id}.")
     return 1
+
+
+# -- git safety: diff / checkpoint / rollback -------------------------------
+
+def _require_git(ctx: AppContext) -> GitRepo:
+    repo = GitRepo(ctx.project.root)
+    if not repo.is_repo():
+        raise ProjectError(
+            "This project is not a git repository.",
+            remedy="Initialize git to enable checkpoints/rollback:\n  git init",
+        )
+    return repo
+
+
+def cmd_diff(ctx: AppContext) -> int:
+    try:
+        repo = _require_git(ctx)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    status = repo.status()
+    ui.console.print(
+        f"branch [bold]{status.branch}[/bold] — "
+        + ("clean" if status.clean else
+           f"{len(status.changed_files)} changed, {len(status.untracked_files)} untracked")
+    )
+    diff = repo.diff()
+    if diff.strip():
+        from rich.syntax import Syntax
+        ui.console.print(Syntax(diff, "diff", theme="ansi_dark", word_wrap=False))
+    if status.untracked_files:
+        ui.console.print("\n[dim]untracked:[/dim] " + ", ".join(status.untracked_files))
+    return 0
+
+
+def cmd_checkpoint(ctx: AppContext, label: str) -> int:
+    try:
+        repo = _require_git(ctx)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    try:
+        sha = repo.create_checkpoint()
+        status = repo.status()
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    store = CheckpointStore(ctx.project.root)
+    cp = store.add(sha, status.branch, label or "manual", status.untracked_files)
+    ui.console.print(
+        f"Checkpoint [bold]#{cp.id}[/bold] created "
+        f"([bold]{sha[:10]}[/bold] on {cp.branch}) — {cp.label}"
+    )
+    ctx.audit.event("checkpoint", id=cp.id, sha=sha, label=cp.label)
+    return 0
+
+
+def cmd_rollback(ctx: AppContext, checkpoint_id: int | None, yes: bool) -> int:
+    try:
+        repo = _require_git(ctx)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    store = CheckpointStore(ctx.project.root)
+    cp = store.get(checkpoint_id) if checkpoint_id else store.latest()
+    if cp is None:
+        ui.print_error(ProjectError(
+            "No checkpoint to roll back to.",
+            remedy="Create one first:\n  cle checkpoint \"before edits\"",
+        ))
+        return 1
+    if not yes:
+        confirm = ui.console.input(
+            f"Restore tracked files to checkpoint #{cp.id} ({cp.sha[:10]})? "
+            "Uncommitted changes to tracked files will be lost [y/N]: "
+        ).strip().lower()
+        if confirm not in {"y", "yes"}:
+            ui.console.print("Aborted.")
+            return 0
+    try:
+        repo.restore_checkpoint(cp.sha)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    ui.console.print(f"Rolled back tracked files to checkpoint #{cp.id}.")
+    # New untracked files added since the checkpoint are reported, never deleted.
+    now_untracked = set(repo.status().untracked_files)
+    new_files = sorted(now_untracked - set(cp.untracked))
+    if new_files:
+        ui.console.print(
+            "[yellow]note[/yellow]: these files were added since the checkpoint "
+            "and were left in place:\n  " + "\n  ".join(new_files)
+        )
+    ctx.audit.event("rollback", id=cp.id, sha=cp.sha)
+    return 0

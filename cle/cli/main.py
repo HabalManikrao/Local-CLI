@@ -145,6 +145,31 @@ def chat(ctx: typer.Context) -> None:
     _run(commands.cmd_chat, _ctx(ctx))
 
 
+@app.command()
+def diff(ctx: typer.Context) -> None:
+    """Show the working-tree git diff and status."""
+    _run(commands.cmd_diff, _ctx(ctx))
+
+
+@app.command()
+def checkpoint(
+    ctx: typer.Context,
+    label: str = typer.Argument("manual", help="Label for this checkpoint."),
+) -> None:
+    """Create a non-destructive snapshot you can roll back to."""
+    _run(commands.cmd_checkpoint, _ctx(ctx), label)
+
+
+@app.command()
+def rollback(
+    ctx: typer.Context,
+    checkpoint_id: int = typer.Argument(None, help="Checkpoint id (default: latest)."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
+) -> None:
+    """Restore tracked files to a previous checkpoint."""
+    _run(commands.cmd_rollback, _ctx(ctx), checkpoint_id, yes)
+
+
 @model_app.command("use")
 def model_use(
     ctx: typer.Context,
