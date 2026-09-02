@@ -964,3 +964,132 @@ def cmd_winium_analyze(ctx: AppContext) -> int:
     _render_findings("Winium analysis", findings)
     ctx.audit.event("winium_analyze", findings=len(findings))
     return 0
+
+
+# -- cle autopilot "<task>" -------------------------------------------------
+
+def _autopilot_checkpoint(ctx: AppContext, label: str) -> None:
+    repo = GitRepo(ctx.project.root)
+    if repo.is_repo():
+        try:
+            sha = repo.create_checkpoint()
+            st = repo.status()
+            CheckpointStore(ctx.project.root).add(sha, st.branch, label, st.untracked_files)
+            ui.console.print(f"[dim]checkpoint ({sha[:10]}): {label}[/dim]")
+        except CleError:
+            pass
+
+
+def _apply_with_approval(ctx: AppContext, agent, plan, fs, *, require_approval: bool,
+                         yes: bool, label: str) -> bool:
+    """Show a plan's diff, get approval if required, checkpoint, and apply.
+
+    Returns True if applied, False if aborted/nothing to do.
+    """
+    if plan.validation_errors or not plan.edit_plan.ops:
+        return False
+    preview = plan.edit_plan.preview(ctx.project.root)
+    if preview.strip():
+        from rich.syntax import Syntax
+        ui.console.print(Syntax(preview, "diff", theme="ansi_dark", word_wrap=False))
+    if require_approval and not yes:
+        confirm = ui.console.input(
+            f"Apply {len(plan.edit_plan.ops)} change(s)? [y/N]: "
+        ).strip().lower()
+        if confirm not in {"y", "yes"}:
+            ui.console.print("Aborted.")
+            return False
+    _autopilot_checkpoint(ctx, label)
+    agent.apply(plan, fs)
+    return True
+
+
+def cmd_autopilot(ctx: AppContext, task: str, max_iterations: int | None, yes: bool) -> int:
+    cfg = ctx.config
+    limit = max_iterations or int(cfg.get("autonomous.max_iterations", 5))
+    require_approval = bool(cfg.get("autonomous.require_approval", True))
+    # Autonomous policy layered over base safety (e.g. autonomous.allow_delete).
+    policy = PermissionPolicy.from_config(cfg)
+    policy.allow_delete = bool(cfg.get("autonomous.allow_delete", policy.allow_delete))
+    guard = PermissionGuard(policy, approver=approve_all)
+    fs = FileSystem(ctx.project.root, guard)
+
+    coding = CodingAgent(ctx.project.root, ctx.provider, ctx.router, ctx.registry, cfg)
+    test_agent = TestAgent(ctx.project.root, guard)
+    debug = DebugAgent(ctx.project.root, ctx.provider, ctx.router, ctx.registry, cfg)
+    cmd_override = _test_command_override(ctx)
+
+    if bool(cfg.get("autonomous.require_git", True)) and not GitRepo(ctx.project.root).is_repo():
+        ui.console.print(
+            "[yellow]note[/yellow]: autonomous.require_git is set but this is not a "
+            "git repo — proceeding without checkpoint safety. Run [bold]git init[/bold]."
+        )
+
+    ui.console.print(f"[bold]Autopilot[/bold]: {task}\n")
+    ctx.audit.event("autopilot_start", task=task, limit=limit)
+    changed_files: set[str] = set()
+    iterations_used = 0
+
+    # PLAN → ANALYZE → PROPOSE → (APPROVE) → EDIT
+    ui.console.print("[bold]● Plan[/bold]")
+    try:
+        plan = coding.plan(task)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    _render_plan(plan)
+    if plan.validation_errors:
+        ui.print_error(CleError("Initial plan failed validation:\n- "
+                                + "\n- ".join(plan.validation_errors)))
+        return 1
+    if plan.edit_plan.ops:
+        ui.console.print("\n[bold]● Edit[/bold]")
+        if not _apply_with_approval(ctx, coding, plan, fs,
+                                    require_approval=require_approval, yes=yes,
+                                    label=f"autopilot: {task[:40]}"):
+            ui.console.print("Stopped before applying changes.")
+            return 1
+        changed_files.update(op.path for op in plan.edit_plan.ops)
+
+    # BUILD/TEST → (DEBUG → FIX → TEST) loop
+    last_result = None
+    for iteration in range(1, limit + 1):
+        iterations_used = iteration
+        ui.console.print(f"\n[bold]● Test (iteration {iteration}/{limit})[/bold]")
+        last_result = test_agent.run(command=cmd_override)
+        if last_result.error:
+            ui.console.print(f"[yellow]{last_result.error}[/yellow]")
+            break
+        _report_test_result(last_result)
+        if last_result.passed:
+            break
+        ui.console.print("\n[bold]● Debug → Fix[/bold]")
+        try:
+            fix_plan = coding.plan(debug.fix_request(last_result))
+        except CleError as exc:
+            ui.print_error(exc)
+            break
+        _render_plan(fix_plan)
+        applied = _apply_with_approval(ctx, coding, fix_plan, fs,
+                                       require_approval=require_approval, yes=yes,
+                                       label=f"autopilot fix iter {iteration}")
+        if not applied:
+            ui.console.print("[yellow]No applicable fix; stopping.[/yellow]")
+            break
+        changed_files.update(op.path for op in fix_plan.edit_plan.ops)
+
+    # REVIEW + FINAL REPORT
+    passed = bool(last_result and last_result.passed)
+    ui.console.print("\n[bold]● Final report[/bold]")
+    report = ui.kv_table("Autopilot report")
+    report.add_row("Task", task)
+    report.add_row("Files changed", ", ".join(sorted(changed_files)) or "none")
+    report.add_row("Test result", "[green]PASS[/green]" if passed else "[red]FAIL[/red]")
+    report.add_row("Iterations", str(iterations_used))
+    if last_result and last_result.error:
+        report.add_row("Note", last_result.error)
+    ui.console.print(report)
+    ui.console.print("Undo everything with [bold]cle rollback[/bold].")
+    ctx.audit.event("autopilot_end", task=task, passed=passed,
+                    iterations=iterations_used, files=sorted(changed_files))
+    return 0 if passed else 1

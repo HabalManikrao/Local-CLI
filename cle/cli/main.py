@@ -185,6 +185,17 @@ def fix_tests(
 
 
 @app.command()
+def autopilot(
+    ctx: typer.Context,
+    task: str = typer.Argument(..., help="The engineering task to attempt."),
+    max_iterations: int = typer.Option(None, "--max-iter", help="Iteration cap (default: config)."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Auto-approve edits."),
+) -> None:
+    """Autonomously plan, edit, build, test, and self-repair a task (bounded)."""
+    _run(commands.cmd_autopilot, _ctx(ctx), task, max_iterations, yes)
+
+
+@app.command()
 def diff(ctx: typer.Context) -> None:
     """Show the working-tree git diff and status."""
     _run(commands.cmd_diff, _ctx(ctx))
