@@ -1,0 +1,53 @@
+# Local CLE — default configuration.
+# Project-level config (.cle/config.yaml) is deep-merged over these defaults.
+# No model names are hard-coded: roles map to whatever you configure/pull.
+
+version: 1
+
+provider:
+  # Ollama connects to localhost by default (offline requirement).
+  type: ollama
+  host: "http://127.0.0.1:11434"
+  timeout_seconds: 120
+  connect_timeout_seconds: 5
+
+models:
+  # Map task roles to Ollama model names. Leave blank until you pull models,
+  # then set with:  cle model use <role> <model>
+  fast: ""        # quick, low-latency answers
+  coding: ""      # code generation / modification
+  reasoning: ""   # debugging, architecture, hard reasoning
+  embedding: ""   # embeddings for semantic search
+
+routing:
+  # Which role each intent uses. Fully configurable (Milestone 3).
+  simple_question: fast
+  code_generation: coding
+  debugging: reasoning
+  architecture: reasoning
+  embedding: embedding
+  default: fast
+
+context:
+  max_tokens: 8000          # sized for 8 GB VRAM (RTX 3060 Ti) headroom
+  max_files: 40
+  chunk_lines: 120
+
+safety:
+  require_approval: true     # never modify files before approval by default
+  allow_delete: false
+  allow_network: false       # core runs offline; Ollama on localhost is local
+  require_git: true
+
+agent:
+  max_iterations: 5          # fix-tests / autopilot repair loops are bounded
+
+autonomous:
+  max_iterations: 5
+  require_git: true
+  require_approval: true
+  allow_delete: false
+
+logging:
+  level: INFO                # DEBUG|INFO|WARNING|ERROR
+  audit: true                # write per-session audit logs under logs/<date>/
