@@ -17,7 +17,9 @@ from ..context.retrieval import ContextEngine
 from ..errors import CleError, ProjectError
 from ..indexing.repository import RepositoryIndex
 from ..agents.coding import CodingAgent
-from ..memory.project import KINDS, ProjectMemory
+from ..agents.debugging import DebugAgent
+from ..agents.testing import TestAgent
+from ..memory.project import KINDS, ProjectMemory, TEST_COMMAND
 from ..models.base import Message
 from ..safety.permissions import PermissionGuard, PermissionPolicy, approve_all
 from ..tools.checkpoints import CheckpointStore
@@ -755,3 +757,158 @@ def cmd_code(ctx: AppContext, request: str, yes: bool, no_apply: bool) -> int:
     if plan.tests_to_run:
         ui.console.print("Next: run your tests — [bold]cle test[/bold].")
     return 0
+
+
+# -- cle test / debug / fix-tests -------------------------------------------
+
+def _test_command_override(ctx: AppContext) -> list[str] | None:
+    """Read a stored test command from memory, if any."""
+    import shlex
+    if not ctx.project.is_initialized:
+        return None
+    mem = ProjectMemory(ctx.project.root)
+    try:
+        cmd = mem.get_setting(TEST_COMMAND)
+    finally:
+        mem.close()
+    return shlex.split(cmd) if cmd else None
+
+
+def _report_test_result(result) -> None:
+    from ..tools.test_runner import BuildSystem
+    if result.error:
+        ui.print_error(CleError(
+            result.error,
+            remedy="Set a test command:\n  cle memory set test_command \"<cmd>\"",
+        ))
+        return
+    header = (
+        f"system [bold]{result.system.value}[/bold] · "
+        f"`{' '.join(result.command)}` · exit {result.returncode}"
+    )
+    if result.passed:
+        ui.console.print(f"[green]PASS[/green] — {header}")
+        return
+    ui.console.print(f"[red]FAIL[/red] — {header}")
+    if result.failures:
+        table = ui.status_table("Failures")
+        table.columns[0].header = "Test"
+        table.columns[1].header = "Location"
+        table.columns[2].header = "Message"
+        for f in result.failures:
+            loc = f.file or "—"
+            if f.line:
+                loc += f":{f.line}"
+            table.add_row(f.name, loc, (f.message or "").strip()[:80])
+        ui.console.print(table)
+    else:
+        tail = "\n".join(result.output.splitlines()[-15:])
+        ui.console.print(tail, markup=False)
+
+
+def cmd_test(ctx: AppContext) -> int:
+    guard = PermissionGuard(PermissionPolicy.from_config(ctx.config), approver=approve_all)
+    agent = TestAgent(ctx.project.root, guard)
+    try:
+        result = agent.run(command=_test_command_override(ctx))
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    _report_test_result(result)
+    ctx.audit.event("test", system=result.system.value,
+                    passed=result.passed, failures=len(result.failures))
+    if result.error:
+        return 1
+    return 0 if result.passed else 1
+
+
+def cmd_debug(ctx: AppContext) -> int:
+    guard = PermissionGuard(PermissionPolicy.from_config(ctx.config), approver=approve_all)
+    result = TestAgent(ctx.project.root, guard).run(command=_test_command_override(ctx))
+    if result.error:
+        ui.print_error(CleError(result.error))
+        return 1
+    if result.passed:
+        ui.console.print("[green]Tests pass[/green] — nothing to debug.")
+        return 0
+    _report_test_result(result)
+    agent = DebugAgent(ctx.project.root, ctx.provider, ctx.router, ctx.registry, ctx.config)
+    ctx.audit.event("debug", failures=len(result.failures))
+    try:
+        diagnosis = agent.diagnose(result)
+    except CleError as exc:
+        ui.print_error(exc)
+        return 1
+    ui.console.print("\n[bold]Diagnosis[/bold]:")
+    ui.console.print(diagnosis, markup=False)
+    return 0
+
+
+def cmd_fix_tests(ctx: AppContext, max_iterations: int | None, yes: bool) -> int:
+    limit = max_iterations or int(ctx.config.get("agent.max_iterations", 5))
+    guard = PermissionGuard(PermissionPolicy.from_config(ctx.config), approver=approve_all)
+    test_agent = TestAgent(ctx.project.root, guard)
+    debug_agent = DebugAgent(ctx.project.root, ctx.provider, ctx.router, ctx.registry, ctx.config)
+    coding_agent = CodingAgent(ctx.project.root, ctx.provider, ctx.router, ctx.registry, ctx.config)
+    cmd_override = _test_command_override(ctx)
+
+    for iteration in range(1, limit + 1):
+        ui.console.print(f"\n[bold]— fix-tests iteration {iteration}/{limit} —[/bold]")
+        result = test_agent.run(command=cmd_override)
+        if result.error:
+            ui.print_error(CleError(result.error))
+            return 1
+        if result.passed:
+            ui.console.print("[green]All tests pass.[/green]")
+            ctx.audit.event("fix_tests", iterations=iteration, result="passed")
+            return 0
+        _report_test_result(result)
+
+        # Ask the coding agent for a fix based on the debug agent's framing.
+        request = debug_agent.fix_request(result)
+        try:
+            plan = coding_agent.plan(request)
+        except CleError as exc:
+            ui.print_error(exc)
+            return 1
+        _render_plan(plan)
+        if plan.validation_errors or not plan.edit_plan.ops:
+            ui.console.print(
+                "[yellow]No applicable fix proposed; stopping.[/yellow]"
+            )
+            ctx.audit.event("fix_tests", iterations=iteration, result="no_fix")
+            return 1
+        preview = plan.edit_plan.preview(ctx.project.root)
+        if preview.strip():
+            from rich.syntax import Syntax
+            ui.console.print(Syntax(preview, "diff", theme="ansi_dark", word_wrap=False))
+        if not yes:
+            confirm = ui.console.input(
+                f"Apply {len(plan.edit_plan.ops)} fix change(s)? [y/N]: "
+            ).strip().lower()
+            if confirm not in {"y", "yes"}:
+                ui.console.print("Aborted.")
+                return 1
+
+        repo = GitRepo(ctx.project.root)
+        if repo.is_repo():
+            try:
+                sha = repo.create_checkpoint()
+                st = repo.status()
+                CheckpointStore(ctx.project.root).add(
+                    sha, st.branch, f"fix-tests iter {iteration}", st.untracked_files)
+            except CleError:
+                pass
+        fs = FileSystem(ctx.project.root, guard)
+        try:
+            coding_agent.apply(plan, fs)
+        except CleError as exc:
+            ui.print_error(exc)
+            return 1
+
+    ui.console.print(
+        f"\n[red]Still failing after {limit} iteration(s).[/red] "
+        "Inspect with [bold]cle debug[/bold]."
+    )
+    ctx.audit.event("fix_tests", iterations=limit, result="exhausted")
+    return 1

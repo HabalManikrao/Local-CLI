@@ -157,6 +157,28 @@ def chat(ctx: typer.Context) -> None:
 
 
 @app.command()
+def test(ctx: typer.Context) -> None:
+    """Detect the build system and run the project's tests."""
+    _run(commands.cmd_test, _ctx(ctx))
+
+
+@app.command()
+def debug(ctx: typer.Context) -> None:
+    """Run tests and, if failing, diagnose the root cause (no changes)."""
+    _run(commands.cmd_debug, _ctx(ctx))
+
+
+@app.command(name="fix-tests")
+def fix_tests(
+    ctx: typer.Context,
+    max_iterations: int = typer.Option(None, "--max-iter", help="Iteration cap (default: config)."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Apply fixes without prompting."),
+) -> None:
+    """Iteratively run tests and propose/apply fixes (bounded loop)."""
+    _run(commands.cmd_fix_tests, _ctx(ctx), max_iterations, yes)
+
+
+@app.command()
 def diff(ctx: typer.Context) -> None:
     """Show the working-tree git diff and status."""
     _run(commands.cmd_diff, _ctx(ctx))
