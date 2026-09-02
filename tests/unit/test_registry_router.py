@@ -63,3 +63,13 @@ def test_router_resolves_intent_to_model():
     cfg = _cfg({"coding": "cc"})
     router = ModelRouter(cfg, ModelRegistry(cfg))
     assert router.model_for_intent("code_generation") == "cc"
+
+
+def test_registry_availability_matches_latest_tag():
+    from cle.models.base import ModelInfo
+    from tests.conftest import FakeProvider
+
+    provider = FakeProvider(installed=[ModelInfo(name="llama3:latest")])
+    reg = ModelRegistry(_cfg({"fast": "llama3", "coding": "missing"}))
+    avail = {a.role: a.installed for a in reg.availability(provider)}
+    assert avail == {"fast": True, "coding": False}

@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from cle.errors import ModelNotFoundError, ProviderConnectionError
+from cle.errors import ModelNotFoundError, ProviderConnectionError, ProviderError
 from cle.models.base import Message
 from cle.models.ollama import OllamaProvider
 
@@ -109,3 +109,37 @@ def test_embed_returns_vector():
 
     vec = _provider(handler).embed("m", "text")
     assert vec == [0.1, 0.2, 0.3]
+
+
+def test_embed_missing_vector_raises():
+    def handler(request):
+        return httpx.Response(200, json={})
+
+    with pytest.raises(ProviderError):
+        _provider(handler).embed("m", "text")
+
+
+def test_generate_forwards_system_prompt():
+    seen = {}
+
+    def handler(request):
+        body = json.loads(request.content)
+        seen.update(body)
+        return httpx.Response(200, json={"response": "ok"})
+
+    _provider(handler).generate("m", "hi", system="be terse")
+    assert seen["system"] == "be terse"
+
+
+def test_timeout_is_translated_to_provider_error():
+    def handler(request):
+        raise httpx.ReadTimeout("slow", request=request)
+
+    with pytest.raises(ProviderError) as exc:
+        _provider(handler).generate("m", "hi")
+    assert "timed out" in exc.value.message.lower()
+
+
+def test_host_trailing_slash_is_normalized():
+    p = OllamaProvider(host="http://example:1234/")
+    assert p.host == "http://example:1234"

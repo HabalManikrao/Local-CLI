@@ -10,11 +10,21 @@ Milestone 3 extends this with health checks; Milestone 1 provides resolution.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ..config import Config
 from ..errors import ModelNotConfiguredError
+from .base import ModelProvider
 
 # Canonical roles recognised by the system.
 ROLES = ("fast", "coding", "reasoning", "embedding")
+
+
+@dataclass
+class RoleAvailability:
+    role: str
+    model: str
+    installed: bool
 
 
 class ModelRegistry:
@@ -51,3 +61,25 @@ class ModelRegistry:
                 ),
             )
         return name
+
+    def availability(self, provider: ModelProvider) -> list[RoleAvailability]:
+        """Check whether each configured role's model is installed.
+
+        Queries the provider once. Matching is exact on model name and also
+        tolerant of Ollama's implicit ``:latest`` tag (``llama3`` matches
+        ``llama3:latest``). May raise a provider error if the daemon is down;
+        callers that want graceful degradation should catch it.
+        """
+        installed = {m.name for m in provider.list_models()}
+
+        def is_installed(model: str) -> bool:
+            if model in installed:
+                return True
+            # Tolerate implicit :latest on either side.
+            base = model.split(":", 1)[0]
+            return f"{base}:latest" in installed or base in installed
+
+        return [
+            RoleAvailability(role=role, model=model, installed=is_installed(model))
+            for role, model in self.configured().items()
+        ]

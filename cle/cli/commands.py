@@ -151,6 +151,19 @@ def cmd_model_use(ctx: AppContext, role: str, model: str) -> int:
     path = set_project_value(ctx.project.root, f"models.{role}", model)
     ui.console.print(f"Set [bold]{role}[/bold] → [bold]{model}[/bold]")
     ui.console.print(f"  ({path})")
+
+    # Best-effort: warn if the model isn't installed. Never fail on daemon-down.
+    try:
+        installed = {m.name for m in ctx.provider.list_models()}
+        base = model.split(":", 1)[0]
+        if model not in installed and f"{base}:latest" not in installed and base not in installed:
+            ui.console.print(
+                f"  [yellow]note[/yellow]: '{model}' is not installed. "
+                f"Pull it with: [bold]ollama pull {model}[/bold]"
+            )
+    except CleError:
+        pass  # daemon down — assignment is still valid; doctor will flag it.
+
     ctx.audit.event("model_use", role=role, model=model)
     return 0
 

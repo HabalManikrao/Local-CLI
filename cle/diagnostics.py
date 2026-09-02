@@ -166,6 +166,38 @@ def check_configured_models(registry: ModelRegistry) -> Check:
     return Check("Models (roles)", "ok", detail)
 
 
+def check_models_installed(
+    registry: ModelRegistry, provider: ModelProvider
+) -> Check:
+    """Verify configured role models are actually installed on the provider.
+
+    Skips (WARN) gracefully when the daemon is unreachable or no roles are set.
+    """
+    from .errors import CleError
+
+    if not registry.configured():
+        return Check("Models (installed)", "warn", "No roles configured to verify")
+    try:
+        availability = registry.availability(provider)
+    except CleError:
+        return Check(
+            "Models (installed)", "warn",
+            "Cannot verify (Ollama daemon unreachable)",
+        )
+    missing = [a for a in availability if not a.installed]
+    if not missing:
+        return Check(
+            "Models (installed)", "ok",
+            ", ".join(f"{a.role}={a.model}" for a in availability),
+        )
+    detail = ", ".join(f"{a.role}={a.model}" for a in missing)
+    pulls = "\n".join(f"  ollama pull {a.model}" for a in missing)
+    return Check(
+        "Models (installed)", "warn", f"not installed: {detail}",
+        remedy=f"Pull the missing model(s):\n{pulls}",
+    )
+
+
 def check_project(project: Project, config: Config) -> Check:
     if project.is_initialized:
         return Check("Project config", "ok", f"initialized at {project.root}")
@@ -192,5 +224,6 @@ def run_all(
         check_ollama_connection(provider),
         check_gpu(),
         check_configured_models(registry),
+        check_models_installed(registry, provider),
         check_project(project, config),
     ]

@@ -47,6 +47,46 @@ def test_check_project_warns_when_uninitialized(tmp_path):
     assert "cle init" in (c.remedy or "")
 
 
+def test_check_models_installed_ok(tmp_path):
+    from cle.config import load_config, set_project_value
+    from cle.models.base import ModelInfo
+
+    set_project_value(tmp_path, "models.fast", "demo")
+    cfg = load_config(tmp_path)
+    reg = ModelRegistry(cfg)
+    provider = FakeProvider(installed=[ModelInfo(name="demo:latest")])
+    c = diagnostics.check_models_installed(reg, provider)
+    assert c.status == "ok"
+
+
+def test_check_models_installed_warns_when_missing(tmp_path):
+    from cle.config import load_config, set_project_value
+
+    set_project_value(tmp_path, "models.fast", "absent-model")
+    cfg = load_config(tmp_path)
+    reg = ModelRegistry(cfg)
+    provider = FakeProvider(installed=[])
+    c = diagnostics.check_models_installed(reg, provider)
+    assert c.status == "warn"
+    assert "ollama pull absent-model" in (c.remedy or "")
+
+
+def test_check_models_installed_graceful_when_daemon_down(tmp_path):
+    from cle.config import load_config, set_project_value
+    from cle.errors import ProviderConnectionError
+
+    set_project_value(tmp_path, "models.fast", "demo")
+    cfg = load_config(tmp_path)
+
+    class Down(FakeProvider):
+        def list_models(self):
+            raise ProviderConnectionError("down")
+
+    c = diagnostics.check_models_installed(ModelRegistry(cfg), Down())
+    assert c.status == "warn"
+    assert "unreachable" in c.detail.lower()
+
+
 def test_run_all_returns_checks(tmp_path):
     cfg = load_config(None)
     project = detect_project(tmp_path)
