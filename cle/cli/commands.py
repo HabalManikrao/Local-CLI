@@ -16,6 +16,7 @@ from ..context.manager import ContextManager
 from ..context.retrieval import ContextEngine
 from ..errors import CleError, ProjectError
 from ..indexing.repository import RepositoryIndex
+from ..memory.project import KINDS, ProjectMemory
 from ..models.base import Message
 from ..models.registry import ROLES
 from ..project import detect_project, git_is_available
@@ -425,3 +426,120 @@ def cmd_embed(ctx: AppContext) -> int:
     ui.console.print(f"Embedded [bold]{count}[/bold] chunks with [bold]{model}[/bold].")
     ctx.audit.event("embed", model=model, chunks=count)
     return 0
+
+
+# -- cle memory -------------------------------------------------------------
+
+def _open_memory(ctx: AppContext) -> ProjectMemory:
+    if not ctx.project.is_initialized:
+        init_project_config(ctx.project.root)
+    return ProjectMemory(ctx.project.root)
+
+
+def cmd_memory(ctx: AppContext) -> int:
+    mem = _open_memory(ctx)
+    try:
+        summary = mem.summary()
+        settings = mem.settings()
+    finally:
+        mem.close()
+    table = ui.kv_table("Project memory")
+    table.add_row("Project", str(ctx.project.root))
+    if summary:
+        for kind, n in summary.items():
+            table.add_row(kind, str(n))
+    else:
+        table.add_row("entries", "none yet")
+    for key, value in settings.items():
+        table.add_row(f"setting:{key}", value)
+    ui.console.print(table)
+    ui.console.print(
+        "\nAdd with: [bold]cle memory add <kind> \"<title>\" [body][/bold]  "
+        "(kinds: " + ", ".join(KINDS) + ")"
+    )
+    return 0
+
+
+def cmd_memory_show(ctx: AppContext, kind: str | None) -> int:
+    if kind and kind not in KINDS:
+        ui.err_console.print(f"[red]Unknown kind '{kind}'.[/red] Valid: {', '.join(KINDS)}")
+        return 1
+    mem = _open_memory(ctx)
+    try:
+        entries = mem.entries(kind)
+        settings = mem.settings()
+    finally:
+        mem.close()
+    if not entries and not settings:
+        ui.console.print("Project memory is empty.")
+        return 0
+    if entries:
+        table = ui.status_table("Memory entries")
+        table.columns[0].header = "ID/Kind"
+        table.columns[1].header = "Title"
+        table.columns[2].header = "Body"
+        for e in entries:
+            table.add_row(f"{e.id} · {e.kind}", e.title, (e.body or "").strip()[:100])
+        ui.console.print(table)
+    if settings:
+        stable = ui.kv_table("Settings")
+        for k, v in settings.items():
+            stable.add_row(k, v)
+        ui.console.print(stable)
+    return 0
+
+
+def cmd_memory_clear(ctx: AppContext, yes: bool) -> int:
+    if not yes:
+        confirm = ui.console.input(
+            "Clear ALL project memory? This cannot be undone [y/N]: "
+        ).strip().lower()
+        if confirm not in {"y", "yes"}:
+            ui.console.print("Aborted.")
+            return 0
+    mem = _open_memory(ctx)
+    try:
+        mem.clear()
+    finally:
+        mem.close()
+    ui.console.print("Project memory cleared.")
+    ctx.audit.event("memory_clear")
+    return 0
+
+
+def cmd_memory_add(ctx: AppContext, kind: str, title: str, body: str | None) -> int:
+    if kind not in KINDS:
+        ui.err_console.print(f"[red]Unknown kind '{kind}'.[/red] Valid: {', '.join(KINDS)}")
+        return 1
+    mem = _open_memory(ctx)
+    try:
+        entry_id = mem.add(kind, title, body)
+    finally:
+        mem.close()
+    ui.console.print(f"Recorded {kind} #{entry_id}: [bold]{title}[/bold]")
+    ctx.audit.event("memory_add", entry_kind=kind, id=entry_id)
+    return 0
+
+
+def cmd_memory_set(ctx: AppContext, key: str, value: str) -> int:
+    mem = _open_memory(ctx)
+    try:
+        mem.set_setting(key, value)
+    finally:
+        mem.close()
+    ui.console.print(f"Set memory setting [bold]{key}[/bold] = {value}")
+    ctx.audit.event("memory_set", key=key)
+    return 0
+
+
+def cmd_memory_remove(ctx: AppContext, entry_id: int) -> int:
+    mem = _open_memory(ctx)
+    try:
+        removed = mem.remove(entry_id)
+    finally:
+        mem.close()
+    if removed:
+        ui.console.print(f"Removed entry #{entry_id}.")
+        return 0
+    ui.console.print(f"No entry #{entry_id}.")
+    return 1

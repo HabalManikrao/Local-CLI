@@ -25,6 +25,14 @@ app = typer.Typer(
 model_app = typer.Typer(help="Inspect and configure model roles.")
 app.add_typer(model_app, name="model")
 
+# `cle memory ...` subcommand group.
+memory_app = typer.Typer(
+    help="Project-scoped memory (decisions, issues, conventions, commands).",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+app.add_typer(memory_app, name="memory")
+
 
 def _version_callback(value: bool) -> None:
     if value:
@@ -151,6 +159,61 @@ def model_use(
 def model_list(ctx: typer.Context) -> None:
     """List configured roles and installed models (alias of `cle models`)."""
     _run(commands.cmd_models, _ctx(ctx))
+
+
+@memory_app.callback()
+def memory_main(ctx: typer.Context) -> None:
+    """Show a memory summary when `cle memory` is run with no subcommand."""
+    if ctx.invoked_subcommand is None:
+        _run(commands.cmd_memory, _ctx(ctx))
+
+
+@memory_app.command("show")
+def memory_show(
+    ctx: typer.Context,
+    kind: str = typer.Argument(None, help="Filter by kind (optional)."),
+) -> None:
+    """List memory entries (optionally of one kind) and settings."""
+    _run(commands.cmd_memory_show, _ctx(ctx), kind)
+
+
+@memory_app.command("add")
+def memory_add(
+    ctx: typer.Context,
+    kind: str = typer.Argument(..., help="decision|issue|convention|important_file|agent_decision|note"),
+    title: str = typer.Argument(..., help="Short title."),
+    body: str = typer.Argument(None, help="Optional detail."),
+) -> None:
+    """Record a memory entry."""
+    _run(commands.cmd_memory_add, _ctx(ctx), kind, title, body)
+
+
+@memory_app.command("set")
+def memory_set(
+    ctx: typer.Context,
+    key: str = typer.Argument(..., help="e.g. build_command, test_command"),
+    value: str = typer.Argument(..., help="The value to store."),
+) -> None:
+    """Set a scalar memory setting (build/test commands, etc.)."""
+    _run(commands.cmd_memory_set, _ctx(ctx), key, value)
+
+
+@memory_app.command("remove")
+def memory_remove(
+    ctx: typer.Context,
+    entry_id: int = typer.Argument(..., help="Entry id to remove."),
+) -> None:
+    """Remove a memory entry by id."""
+    _run(commands.cmd_memory_remove, _ctx(ctx), entry_id)
+
+
+@memory_app.command("clear")
+def memory_clear(
+    ctx: typer.Context,
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
+) -> None:
+    """Clear all project memory."""
+    _run(commands.cmd_memory_clear, _ctx(ctx), yes)
 
 
 if __name__ == "__main__":  # pragma: no cover
