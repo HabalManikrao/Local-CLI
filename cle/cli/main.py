@@ -73,6 +73,12 @@ def doctor(ctx: typer.Context) -> None:
 
 
 @app.command()
+def index(ctx: typer.Context) -> None:
+    """Scan the project and build the local code index (files/symbols/imports)."""
+    _run(commands.cmd_index, _ctx(ctx))
+
+
+@app.command()
 def status(ctx: typer.Context) -> None:
     """Show project, provider, model-role, and index status."""
     _run(commands.cmd_status, _ctx(ctx))

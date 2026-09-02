@@ -12,6 +12,7 @@ from pathlib import Path
 from .. import __version__, diagnostics
 from ..config import init_project_config, set_project_value
 from ..errors import CleError
+from ..indexing.repository import RepositoryIndex
 from ..models.base import Message
 from ..models.registry import ROLES
 from ..project import detect_project, git_is_available
@@ -82,6 +83,33 @@ def cmd_doctor(ctx: AppContext) -> int:
     return 0
 
 
+# -- cle index --------------------------------------------------------------
+
+def cmd_index(ctx: AppContext) -> int:
+    if not ctx.project.is_initialized:
+        init_project_config(ctx.project.root)
+    ui.console.print(f"Indexing [bold]{ctx.project.root}[/bold] ...")
+    index = RepositoryIndex(ctx.project.root)
+    try:
+        with ui.console.status("scanning files"):
+            stats = index.rebuild()
+    finally:
+        index.close()
+
+    table = ui.kv_table("Index built")
+    table.add_row("Files", str(stats.files))
+    table.add_row("Parsed (java/py)", str(stats.parsed))
+    table.add_row("Symbols", str(stats.symbols))
+    table.add_row("Imports", str(stats.imports))
+    if stats.languages:
+        langs = ", ".join(f"{k}={v}" for k, v in sorted(
+            stats.languages.items(), key=lambda kv: -kv[1]))
+        table.add_row("Languages", langs)
+    ui.console.print(table)
+    ctx.audit.event("index", files=stats.files, symbols=stats.symbols)
+    return 0
+
+
 # -- cle status -------------------------------------------------------------
 
 def cmd_status(ctx: AppContext) -> int:
@@ -98,9 +126,20 @@ def cmd_status(ctx: AppContext) -> int:
     role_str = ", ".join(f"{r}={m or '—'}" for r, m in roles.items())
     table.add_row("Model roles", role_str)
 
-    # Index status: not built until Milestone 4.
     index_db = p.cle_dir / "index" / "index.db"
-    table.add_row("Index", "built" if index_db.exists() else "not indexed")
+    if index_db.exists():
+        index = RepositoryIndex(p.root)
+        try:
+            counts = index.counts()
+            table.add_row(
+                "Index",
+                f"{counts['files']} files, {counts['symbols']} symbols, "
+                f"{counts['imports']} imports",
+            )
+        finally:
+            index.close()
+    else:
+        table.add_row("Index", "not indexed (run: cle index)")
     ui.console.print(table)
     return 0
 

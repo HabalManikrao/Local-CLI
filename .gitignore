@@ -17,6 +17,8 @@ env/
 htmlcov/
 
 # CLE runtime artifacts
+# This repository is the CLE tool itself; ignore its own project scratch dir.
+/.cle/
 logs/
 *.db
 *.sqlite
