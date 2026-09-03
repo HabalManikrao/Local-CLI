@@ -9,6 +9,9 @@ auditable trail — all on your machine, no cloud required.
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the big picture and
 > [`docs/ARCHITECTURE-AUDIT.md`](docs/ARCHITECTURE-AUDIT.md) for the original
 > audit.
+>
+> **New here?** Follow [`docs/RUNNING-LOCALLY.md`](docs/RUNNING-LOCALLY.md) for a
+> complete, offline, step-by-step local setup.
 
 ## Requirements
 
