@@ -13,32 +13,46 @@ auditable trail — all on your machine, no cloud required.
 > **New here?** Follow [`docs/RUNNING-LOCALLY.md`](docs/RUNNING-LOCALLY.md) for a
 > complete, offline, step-by-step local setup.
 
-## Requirements
+## Install — one command (Windows)
 
-- Python 3.11+
-- [Ollama](https://ollama.com/download) (running locally)
-- Git, and (recommended) [ripgrep](https://github.com/BurntSushi/ripgrep)
+```powershell
+.\setup.ps1
+```
 
-## Install (development)
+`setup.ps1` detects, installs (via winget), configures, and validates
+everything — Python, Git, ripgrep, Ollama, the virtualenv, dependencies, local
+models, model roles — then runs `cle doctor`, the test suite, and a real Ollama
+smoke test. It's idempotent (safe to re-run) with `-Repair` and `-Verify` modes.
+If PowerShell blocks scripts, use `setup.cmd`. Full guide:
+[`docs/INSTALLATION.md`](docs/INSTALLATION.md) ·
+troubleshooting: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+
+```powershell
+.\setup.ps1 -Verify        # read-only health check (CI-friendly)
+.\setup.ps1 -Repair        # fix only what's broken
+.\setup.ps1 -SkipModels    # skip model downloads
+```
+
+Requirements: Windows 10/11 + PowerShell 5.1+, winget for auto-install, internet
+for the first run (CLE runs offline afterward). NVIDIA GPU optional (CPU works).
+
+<details>
+<summary>Manual install (or macOS/Linux)</summary>
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-```
-
-## Quick start
-
-```powershell
 cle doctor                       # validate your environment
 cle init                         # initialize a CLE project (creates .cle/)
 ollama pull llama3.2             # pull any model you like
 cle model use fast llama3.2      # assign it to the 'fast' role
-cle model use coding llama3.2    # ...and other roles
 cle models                       # list roles + installed models
 cle ask "Explain this project"   # one-shot question
-cle chat                         # interactive chat
 ```
+
+See [`docs/RUNNING-LOCALLY.md`](docs/RUNNING-LOCALLY.md) for the full manual walkthrough.
+</details>
 
 ## Commands
 

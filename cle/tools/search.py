@@ -54,6 +54,11 @@ def _ripgrep_search(
         cmd.append("-i")
     if fixed:
         cmd.append("-F")
+    # Exclude the same vendor/build directories as the Python fallback so search
+    # results are identical regardless of whether ripgrep is installed. ripgrep
+    # otherwise only honors .gitignore, which a project may not have.
+    for d in sorted(DEFAULT_EXCLUDE_DIRS):
+        cmd += ["--glob", f"!**/{d}/**"]
     cmd += [pattern, str(root)]
     try:
         proc = subprocess.run(
