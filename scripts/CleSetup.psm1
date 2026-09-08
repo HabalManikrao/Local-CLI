@@ -333,6 +333,161 @@ function Install-CleWingetPackage {
     return $false
 }
 
+# --------------------------------------------------------------------------
+# Offline helpers (Phase 13): checksums, disk, and Ollama model store
+# --------------------------------------------------------------------------
+
+function Get-CleFileSha256 {
+    <# Lowercase hex SHA256 of a file, or $null if unreadable. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    try {
+        return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLower()
+    }
+    catch { return $null }
+}
+
+function Test-CleFileSha256 {
+    <# True if the file's SHA256 equals $Expected (case-insensitive). #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Expected)
+    $actual = Get-CleFileSha256 -Path $Path
+    if (-not $actual) { return $false }
+    return ($actual -eq $Expected.Trim().ToLower())
+}
+
+function Format-CleSize {
+    <# Human-readable size from a byte count. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][double]$Bytes)
+    if ($Bytes -ge 1GB) { return ('{0:N1} GB' -f ($Bytes / 1GB)) }
+    if ($Bytes -ge 1MB) { return ('{0:N1} MB' -f ($Bytes / 1MB)) }
+    if ($Bytes -ge 1KB) { return ('{0:N1} KB' -f ($Bytes / 1KB)) }
+    return ('{0} B' -f [int]$Bytes)
+}
+
+function Get-CleFreeDiskGB {
+    <# Free space (GB) on the drive that would contain $Path. $null if unknown. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        $full = [System.IO.Path]::GetFullPath($Path)
+        $root = [System.IO.Path]::GetPathRoot($full)
+        $drive = New-Object System.IO.DriveInfo($root)
+        return [math]::Round($drive.AvailableFreeSpace / 1GB, 1)
+    }
+    catch { return $null }
+}
+
+function Get-CleOllamaModelsDir {
+    <# Resolve the Ollama model store directory (honors $env:OLLAMA_MODELS). #>
+    [CmdletBinding()]
+    param()
+    if ($env:OLLAMA_MODELS) { return $env:OLLAMA_MODELS }
+    return (Join-Path $env:USERPROFILE '.ollama\models')
+}
+
+function Resolve-CleModelRef {
+    <# Split a model reference into @{ Name; Tag }. Default tag is 'latest'.
+       Splits on the LAST ':' so registry ports/namespaces are preserved. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Model)
+    $ref = $Model.Trim()
+    $idx = $ref.LastIndexOf(':')
+    # A ':' that is part of a name (none) vs a tag separator; treat trailing
+    # segment without '/' after ':' as the tag.
+    if ($idx -gt 0 -and $ref.Substring($idx + 1) -notmatch '/') {
+        return @{ Name = $ref.Substring(0, $idx); Tag = $ref.Substring($idx + 1) }
+    }
+    return @{ Name = $ref; Tag = 'latest' }
+}
+
+function ConvertTo-CleBlobFileName {
+    <# 'sha256:abc...' -> 'sha256-abc...' (the on-disk blob file name). #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Digest)
+    return ($Digest -replace ':', '-')
+}
+
+function Find-CleOllamaManifest {
+    <# Locate a model's manifest file under a models dir. Tries the default
+       library path, then a recursive search for <parent=Name>/<file=Tag>.
+       Returns the FileInfo full path or $null. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ModelsDir,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Tag
+    )
+    $manifestsRoot = Join-Path $ModelsDir 'manifests'
+    if (-not (Test-Path -LiteralPath $manifestsRoot)) { return $null }
+    $default = Join-Path $manifestsRoot ("registry.ollama.ai\library\{0}\{1}" -f ($Name -replace '/', '\'), $Tag)
+    if (Test-Path -LiteralPath $default -PathType Leaf) { return $default }
+    $leaf = ($Name -split '/')[-1]
+    $hit = Get-ChildItem -LiteralPath $manifestsRoot -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq $Tag -and (Split-Path -Leaf $_.DirectoryName) -eq $leaf } |
+        Select-Object -First 1
+    if ($hit) { return $hit.FullName }
+    return $null
+}
+
+function Get-CleManifestDigests {
+    <# Return all blob digests referenced by an Ollama manifest (config + layers). #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ManifestPath)
+    $digests = @()
+    try {
+        $j = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    }
+    catch { return , $digests }
+    if ($j.PSObject.Properties.Name -contains 'config' -and $j.config -and $j.config.digest) {
+        $digests += $j.config.digest
+    }
+    if ($j.PSObject.Properties.Name -contains 'layers' -and $j.layers) {
+        foreach ($l in $j.layers) { if ($l.digest) { $digests += $l.digest } }
+    }
+    return , ($digests | Select-Object -Unique)
+}
+
+function Read-CleSha256Sums {
+    <# Parse a SHA256SUMS.txt ('hash *relpath' or 'hash  relpath') into a
+       hashtable of relpath(forward-slash) -> lowercase hash. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    $map = @{}
+    if (-not (Test-Path -LiteralPath $Path)) { return $map }
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        $t = $line.Trim()
+        if (-not $t -or $t.StartsWith('#')) { continue }
+        $m = [regex]::Match($t, '^(?<hash>[0-9a-fA-F]{64})\s+\*?(?<path>.+)$')
+        if ($m.Success) {
+            $rel = $m.Groups['path'].Value.Trim() -replace '\\', '/'
+            $map[$rel] = $m.Groups['hash'].Value.ToLower()
+        }
+    }
+    return $map
+}
+
+function Test-CleBundleChecksums {
+    <# Verify every file listed in a bundle's SHA256SUMS.txt. Returns
+       @{ Ok; Checked; Mismatch; Missing; Bad[] } without changing anything. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$BundleDir)
+    $sumsPath = Join-Path $BundleDir 'checksums\SHA256SUMS.txt'
+    $result = @{ Ok = $false; Checked = 0; Mismatch = 0; Missing = 0; Bad = @() }
+    if (-not (Test-Path -LiteralPath $sumsPath)) { $result.Bad += 'SHA256SUMS.txt missing'; return $result }
+    $sums = Read-CleSha256Sums -Path $sumsPath
+    foreach ($rel in $sums.Keys) {
+        $full = Join-Path $BundleDir ($rel -replace '/', '\')
+        if (-not (Test-Path -LiteralPath $full)) { $result.Missing++; $result.Bad += "missing: $rel"; continue }
+        if (-not (Test-CleFileSha256 -Path $full -Expected $sums[$rel])) { $result.Mismatch++; $result.Bad += "mismatch: $rel"; continue }
+        $result.Checked++
+    }
+    $result.Ok = ($result.Mismatch -eq 0 -and $result.Missing -eq 0 -and $sums.Count -gt 0)
+    return $result
+}
+
 Export-ModuleMember -Function `
     Initialize-CleLog, Write-CleLog, `
     ConvertTo-CleVersion, Test-CleVersionAtLeast, `
@@ -341,4 +496,8 @@ Export-ModuleMember -Function `
     Get-CleRecommendedModels, Get-CleApproxModelSizeGB, `
     Test-CleCommand, Invoke-CleCapture, Get-ClePython, Get-CleGpu, `
     Get-CleRamGB, Test-CleAdmin, Update-CleProcessPath, `
-    Test-CleOllamaApi, Wait-CleOllamaApi, Install-CleWingetPackage
+    Test-CleOllamaApi, Wait-CleOllamaApi, Install-CleWingetPackage, `
+    Get-CleFileSha256, Test-CleFileSha256, Format-CleSize, Get-CleFreeDiskGB, `
+    Get-CleOllamaModelsDir, Resolve-CleModelRef, ConvertTo-CleBlobFileName, `
+    Find-CleOllamaManifest, Get-CleManifestDigests, Read-CleSha256Sums, `
+    Test-CleBundleChecksums

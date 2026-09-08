@@ -73,3 +73,25 @@ Describe 'Get-CleRecommendedModels' {
         $r.Contains('embedding') | Should Be $true
     }
 }
+
+Describe 'Resolve-CleModelRef (offline)' {
+    It 'splits name and tag on the last colon' {
+        $r = Resolve-CleModelRef 'qwen2.5-coder:7b'
+        $r.Name | Should Be 'qwen2.5-coder'
+        $r.Tag | Should Be '7b'
+    }
+    It 'defaults the tag to latest' {
+        (Resolve-CleModelRef 'llama3.2').Tag | Should Be 'latest'
+    }
+}
+
+Describe 'ConvertTo-CleBlobFileName (offline)' {
+    It 'converts a digest to its blob file name' {
+        ConvertTo-CleBlobFileName 'sha256:abc' | Should Be 'sha256-abc'
+    }
+}
+
+Describe 'Format-CleSize (offline)' {
+    It 'formats gigabytes' { Format-CleSize 1610612736 | Should Be '1.5 GB' }
+    It 'formats bytes' { Format-CleSize 512 | Should Be '512 B' }
+}

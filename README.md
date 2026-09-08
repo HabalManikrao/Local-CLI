@@ -36,6 +36,20 @@ troubleshooting: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 Requirements: Windows 10/11 + PowerShell 5.1+, winget for auto-install, internet
 for the first run (CLE runs offline afterward). NVIDIA GPU optional (CPU works).
 
+### Completely offline (air-gapped) install
+
+Prepare a bundle on an internet PC, copy it via USB, install with no internet:
+
+```powershell
+# online PC (models pulled in Ollama first):
+.\build-offline-bundle.ps1
+# -> copy dist\CLE-OFFLINE-BUNDLE-<ver> to the offline PC, then there:
+.\verify.ps1            # optional integrity check
+.\setup.ps1 -Offline    # installs Python/Git/Ollama, deps, models — no network
+```
+
+Full guide: [`docs/OFFLINE-INSTALLATION.md`](docs/OFFLINE-INSTALLATION.md).
+
 <details>
 <summary>Manual install (or macOS/Linux)</summary>
 

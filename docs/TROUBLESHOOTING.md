@@ -11,6 +11,18 @@ remedy. This page collects the common ones. Every setup run also writes a log to
 .\setup.ps1 -Repair     # fixes venv / deps / daemon / models
 ```
 
+## Offline bundle / install
+
+| Symptom | Cause / Fix |
+|---------|-------------|
+| verify.ps1 / preflight: `checksum mismatch` or `missing file` | The bundle was corrupted/incompletely copied. Re-copy it, or rebuild on the online PC: `.\build-offline-bundle.ps1`. Offline install refuses to proceed on a bad bundle. |
+| `Required model '<m>' is incomplete/missing` | The model wasn't fully packaged. Rebuild the bundle with that model pulled on the online PC. Offline mode never downloads. |
+| `does not look like an offline bundle (no manifest.json)` | Run `setup.ps1 -Offline` from inside the bundle folder, or pass `-BundlePath <dir>`. |
+| `<tool> is not installed and no installer is bundled` | The offline machine lacks Python/Git/Ollama and the bundle was built with `-SkipInstallers`. Rebuild WITHOUT `-SkipInstallers` on the online PC. |
+| pip: `Location '...' is ignored` warnings | Harmless if install still succeeds; occurs only if a find-links path with spaces leaks into `PIP_FIND_LINKS`. Offline mode passes `--find-links` as a quoted arg. |
+| Model present but smoke test skipped | No `fast` model in the bundle/config. Package a chat model for the `fast` role. |
+| Want to add a model later (offline) | Rebuild the bundle on the online PC, transfer, then `.\setup.ps1 -Offline -Repair`. |
+
 ## Installer (setup.ps1)
 
 | Symptom | Cause / Fix |

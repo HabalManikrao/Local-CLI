@@ -113,4 +113,16 @@ touching working configuration.
   authoritative `pyproject.toml` / `configs/default.yaml`; it does not duplicate
   CLE logic. See [`INSTALLATION-AUDIT.md`](INSTALLATION-AUDIT.md).
 
+## Completely offline install
+
+For a machine with **no internet**, prepare a bundle on an online PC and install
+from it — see [`OFFLINE-INSTALLATION.md`](OFFLINE-INSTALLATION.md):
+
+```powershell
+# online PC:
+.\build-offline-bundle.ps1
+# copy dist\CLE-OFFLINE-BUNDLE-<ver> to the offline PC via USB, then:
+.\setup.ps1 -Offline
+```
+
 Trouble? See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).

@@ -96,6 +96,56 @@ Assert-True  ($rec.Contains('fast') -and $rec.Contains('coding') -and $rec.Conta
 Assert-True  ((Get-CleApproxModelSizeGB -Model 'llama3.2') -gt 0) 'known model size > 0'
 Assert-Equal 'unknown size 0'  0.0 (Get-CleApproxModelSizeGB -Model 'does-not-exist')
 
+# -- Offline helpers (Phase 13) ---------------------------------------------
+Write-Host 'Resolve-CleModelRef'
+$r1 = Resolve-CleModelRef 'qwen2.5-coder:7b'
+Assert-Equal 'name split'      'qwen2.5-coder' $r1.Name
+Assert-Equal 'tag split'       '7b' $r1.Tag
+$r2 = Resolve-CleModelRef 'llama3.2'
+Assert-Equal 'default tag'     'latest' $r2.Tag
+
+Write-Host 'ConvertTo-CleBlobFileName'
+Assert-Equal 'digest to blob'  'sha256-abc123' (ConvertTo-CleBlobFileName 'sha256:abc123')
+
+Write-Host 'Format-CleSize'
+Assert-Equal 'GB format'       '1.5 GB' (Format-CleSize 1610612736)
+Assert-Equal 'bytes format'    '512 B' (Format-CleSize 512)
+
+Write-Host 'Get-CleFileSha256 / Test-CleFileSha256'
+$tmp = Join-Path $env:TEMP ('cle-sha-' + [System.IO.Path]::GetRandomFileName())
+Set-Content -LiteralPath $tmp -Value 'hello' -NoNewline -Encoding ASCII
+$expected = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'  # sha256("hello")
+Assert-Equal 'sha256 of hello' $expected (Get-CleFileSha256 -Path $tmp)
+Assert-True  (Test-CleFileSha256 -Path $tmp -Expected $expected.ToUpper()) 'case-insensitive match'
+Assert-True  (-not (Test-CleFileSha256 -Path $tmp -Expected 'deadbeef')) 'wrong hash -> false'
+Remove-Item -LiteralPath $tmp -Force
+
+Write-Host 'Read-CleSha256Sums'
+$sf = Join-Path $env:TEMP ('cle-sums-' + [System.IO.Path]::GetRandomFileName())
+Set-Content -LiteralPath $sf -Encoding ASCII -Value @(
+    'aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111 *packages/foo.whl',
+    'BBBB2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222 *models/blobs/sha256-xyz',
+    '# a comment',
+    ''
+)
+$map = Read-CleSha256Sums -Path $sf
+Assert-Equal 'sums count'      2 $map.Count
+Assert-Equal 'sums path key'   'aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111' $map['packages/foo.whl']
+Assert-Equal 'sums lowercased' 'bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222' $map['models/blobs/sha256-xyz']
+Remove-Item -LiteralPath $sf -Force
+
+Write-Host 'Get-CleManifestDigests'
+$mf = Join-Path $env:TEMP ('cle-mf-' + [System.IO.Path]::GetRandomFileName())
+Set-Content -LiteralPath $mf -Encoding ASCII -Value (@'
+{ "config": { "digest": "sha256:cfg" },
+  "layers": [ { "digest": "sha256:l1" }, { "digest": "sha256:l2" } ] }
+'@)
+$dg = Get-CleManifestDigests -ManifestPath $mf
+Assert-Equal 'digest count'    3 $dg.Count
+Assert-True  ($dg -contains 'sha256:cfg') 'config digest present'
+Assert-True  ($dg -contains 'sha256:l2') 'layer digest present'
+Remove-Item -LiteralPath $mf -Force
+
 # -- Summary ----------------------------------------------------------------
 Write-Host ''
 $summaryColor = 'Green'
