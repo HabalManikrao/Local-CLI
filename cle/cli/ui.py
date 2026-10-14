@@ -11,6 +11,14 @@ import sys
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 
 from ..errors import CleError
@@ -41,6 +49,23 @@ err_console = Console(stderr=True)
 OK = "[green]OK[/green]"
 WARN = "[yellow]WARN[/yellow]"
 FAIL = "[red]FAIL[/red]"
+
+
+def progress_bar() -> Progress:
+    """A progress bar for long local operations (e.g. embedding a repo).
+
+    Starts as a spinner (total unknown) and becomes a percentage bar once the
+    caller sets a total via ``task.update(total=...)``.
+    """
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    )
 
 
 def print_error(exc: CleError) -> None:

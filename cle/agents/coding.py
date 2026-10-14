@@ -50,6 +50,23 @@ with COMPLETE contents for large rewrites. Keep changes minimal and correct.
 """
 
 
+def _as_str_list(value: object) -> list[str]:
+    """Coerce a model field to a list of strings.
+
+    Real models sometimes return a bare string where a list is expected
+    (``"risks": "may break login"``); iterating that char-by-char produced
+    garbled output. A string becomes a single-element list; a list is mapped
+    to str; anything else yields an empty list.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return []
+
+
 @dataclass
 class CodingPlan:
     goal: str
@@ -102,8 +119,8 @@ class CodingAgent(BaseAgent):
             goal=str(data.get("goal", request)),
             reasoning=str(data.get("reasoning", "")),
             expected_impact=str(data.get("expected_impact", "")),
-            risks=[str(r) for r in data.get("risks", [])],
-            tests_to_run=[str(t) for t in data.get("tests_to_run", [])],
+            risks=_as_str_list(data.get("risks")),
+            tests_to_run=_as_str_list(data.get("tests_to_run")),
             files_inspected=files_inspected,
             changes=changes,
             edit_plan=edit_plan,

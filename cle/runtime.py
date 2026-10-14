@@ -36,7 +36,7 @@ def _build_provider(config: Config) -> ModelProvider:
         num_ctx = config.get("provider.num_ctx", None)
         return OllamaProvider(
             host=config.get("provider.host", "http://127.0.0.1:11434"),
-            timeout_seconds=float(config.get("provider.timeout_seconds", 120)),
+            timeout_seconds=float(config.get("provider.timeout_seconds", 300)),
             connect_timeout_seconds=float(
                 config.get("provider.connect_timeout_seconds", 5)
             ),

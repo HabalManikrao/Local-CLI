@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,32 +55,56 @@ class EmbeddingStore:
         self.provider = provider
         self.model = model
 
-    def build(self, root: Path, window: int = 60, overlap: int = 10) -> int:
-        """Embed all eligible chunks under *root*. Returns chunk count."""
+    def build(
+        self,
+        root: Path,
+        window: int = 60,
+        overlap: int = 10,
+        on_progress: Callable[[int, int, str], None] | None = None,
+    ) -> int:
+        """Embed all eligible chunks under *root*. Returns chunk count.
+
+        ``on_progress(done, total, rel)`` is called after each file so callers
+        can show progress — a real repo + model is many minutes of work. Each
+        file's rows are written in their own transaction and embedding calls run
+        *outside* the DB lock, so a long embed never holds a write lock across
+        thousands of HTTP round-trips.
+        """
+        candidates = [
+            p for p in iter_source_files(root)
+            if detect_language(p) in _EMBED_LANGUAGES
+        ]
+        total = len(candidates)
         with self.db.transaction() as conn:
             conn.execute("DELETE FROM embeddings")
         count = 0
-        with self.db.transaction() as conn:
-            for path in iter_source_files(root):
-                language = detect_language(path)
-                if language not in _EMBED_LANGUAGES:
-                    continue
-                try:
-                    if path.stat().st_size > _MAX_EMBED_BYTES:
-                        continue
+        for done, path in enumerate(candidates, start=1):
+            rel = path.relative_to(root).as_posix()
+            try:
+                if path.stat().st_size <= _MAX_EMBED_BYTES:
                     text = path.read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
-                    continue
-                rel = path.relative_to(root).as_posix()
-                for chunk in chunk_text(rel, text, window, overlap):
-                    vector = self.provider.embed(self.model, chunk.text)
-                    conn.execute(
-                        "INSERT INTO embeddings(path, start, end, text, model, dim, vector) "
-                        "VALUES(?,?,?,?,?,?,?)",
-                        (chunk.path, chunk.start, chunk.end, chunk.text,
-                         self.model, len(vector), json.dumps(vector)),
-                    )
-                    count += 1
+                    # Embed every chunk first (network I/O, no DB lock held)...
+                    rows = []
+                    for chunk in chunk_text(rel, text, window, overlap):
+                        vector = self.provider.embed(self.model, chunk.text)
+                        rows.append((
+                            chunk.path, chunk.start, chunk.end, chunk.text,
+                            self.model, len(vector), json.dumps(vector),
+                        ))
+                    # ...then commit this file's rows in a single short tx.
+                    if rows:
+                        with self.db.transaction() as conn:
+                            conn.executemany(
+                                "INSERT INTO embeddings"
+                                "(path, start, end, text, model, dim, vector) "
+                                "VALUES(?,?,?,?,?,?,?)",
+                                rows,
+                            )
+                        count += len(rows)
+            except (OSError, UnicodeDecodeError):
+                pass
+            if on_progress is not None:
+                on_progress(done, total, rel)
         self.db.set_meta("embeddings_model", self.model)
         return count
 

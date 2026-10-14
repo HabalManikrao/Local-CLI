@@ -39,6 +39,11 @@ markers = [
     "integration: integration tests (temp git repos, sqlite, ripgrep)",
     "e2e: end-to-end CLI subprocess tests",
 ]
+filterwarnings = [
+    # TestRunResult/TestFailure are domain classes, not test classes; pytest's
+    # Test*-name heuristic misfires when a test module imports them.
+    "ignore:cannot collect test class:pytest.PytestCollectionWarning",
+]
 
 [tool.ruff]
 line-length = 100

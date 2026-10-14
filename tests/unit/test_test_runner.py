@@ -6,6 +6,7 @@ from cle.tools.test_runner import (
     BuildSystem,
     detect_build_system,
     parse_failures,
+    run_tests,
 )
 
 
@@ -83,3 +84,20 @@ def test_parse_maven_failures():
 
 def test_parse_no_failures():
     assert parse_failures("all good", BuildSystem.PYTHON) == []
+
+
+# -- run_tests error branches -----------------------------------------------
+
+def test_run_tests_unknown_build_system(tmp_path):
+    # Empty dir: no detectable build system → structured error, not a crash.
+    result = run_tests(tmp_path)
+    assert result.system == BuildSystem.UNKNOWN
+    assert result.passed is False
+    assert result.error and "detect" in result.error.lower()
+
+
+def test_run_tests_tool_not_on_path(tmp_path):
+    # An explicit command whose executable is absent → clear "not on PATH".
+    result = run_tests(tmp_path, command=["definitely-not-a-real-tool-xyz", "test"])
+    assert result.passed is False
+    assert result.error and "PATH" in result.error

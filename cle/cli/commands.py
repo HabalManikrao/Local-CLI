@@ -424,8 +424,14 @@ def cmd_embed(ctx: AppContext) -> int:
         return 1
     store = EmbeddingStore(index.db, ctx.provider, model)
     try:
-        with ui.console.status(f"embedding chunks with {model}"):
-            count = store.build(ctx.project.root)
+        with ui.progress_bar() as progress:
+            task = progress.add_task(f"embedding with {model}", total=None)
+
+            def on_progress(done: int, total: int, rel: str) -> None:
+                progress.update(task, total=total, completed=done,
+                                description=f"embedding {rel}")
+
+            count = store.build(ctx.project.root, on_progress=on_progress)
     except CleError as exc:
         index.close()
         ui.print_error(exc)

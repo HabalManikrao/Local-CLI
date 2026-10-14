@@ -60,6 +60,29 @@ def test_exact_search_excludes_vendor_dirs(tmp_path):
     assert not any("node_modules" in p for p in paths)
 
 
+def test_python_search_fallback_when_no_ripgrep(tmp_path, monkeypatch):
+    # Force the pure-Python path (rg is normally always present in CI/dev), so
+    # the documented "works offline without ripgrep" guarantee is exercised.
+    import cle.tools.search as search_mod
+    monkeypatch.setattr(search_mod, "ripgrep_available", lambda: False)
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "a.py").write_text("HELLO world\nfoo\nhello again\n", encoding="utf-8")
+    (tmp_path / "node_modules" / "b.py").write_text("hello vendor\n", encoding="utf-8")
+
+    # case-insensitive matches both HELLO and hello, and skips vendor dirs
+    ci = exact_search(tmp_path, "hello", ignore_case=True)
+    assert {m.line for m in ci} == {1, 3}
+    assert all(m.source == EvidenceSource.LOCAL for m in ci)
+    assert not any("node_modules" in m.path for m in ci)
+
+    # fixed-string treats regex metachars literally
+    (tmp_path / "c.py").write_text("a.b\naxb\n", encoding="utf-8")
+    lit = exact_search(tmp_path, "a.b", fixed_string=True)
+    assert [m.line for m in lit if m.path == "c.py"] == [1]
+
+
 # -- embeddings (fake provider) ---------------------------------------------
 
 def test_cosine():
