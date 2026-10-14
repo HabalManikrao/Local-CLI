@@ -70,6 +70,10 @@ See [`docs/RUNNING-LOCALLY.md`](docs/RUNNING-LOCALLY.md) for the full manual wal
 
 ## Commands
 
+> **New user?** The [**Usage guide**](docs/USAGE.md) walks through real
+> workflows (understand code · change safely · fix tests · autopilot) with
+> copy-paste commands. The table below is the quick reference.
+
 **Setup & info**
 
 | Command | Purpose |
