@@ -95,6 +95,11 @@ class CodingAgent(BaseAgent):
         data = extract_json(result.text)
 
         changes = data.get("changes") or []
+        if not isinstance(changes, list):
+            raise AgentError(
+                "Model returned 'changes' in an unexpected shape (expected a list).",
+                remedy="Retry the request; ask the model to follow the JSON schema.",
+            )
         edit_ops = [self._to_edit_op(c) for c in changes]
         edit_plan = EditPlan(edit_ops)
         errors = edit_plan.validate(self.root)
@@ -123,12 +128,28 @@ class CodingAgent(BaseAgent):
 
     @staticmethod
     def _to_edit_op(change: dict) -> EditOp:
+        if not isinstance(change, dict):
+            raise AgentError(
+                f"Model proposed a change that is not an object: {change!r}",
+                remedy="Retry the request; each change must be a JSON object.",
+            )
         op = str(change.get("op", "")).upper()
         if op not in OP_TYPES:
             raise AgentError(
                 f"Model proposed an unknown edit operation: {op!r}",
                 remedy="Retry the request.",
             )
+        # Real models often emit numbers as strings ("at_line": "42"); coerce so
+        # the downstream edit math doesn't TypeError on str - int.
+        at_line = change.get("at_line")
+        if at_line is not None:
+            try:
+                at_line = int(at_line)
+            except (TypeError, ValueError):
+                raise AgentError(
+                    f"Model proposed a non-integer at_line: {at_line!r}",
+                    remedy="Retry the request.",
+                )
         return EditOp(
             op=op,
             path=str(change.get("path", "")),
@@ -136,5 +157,5 @@ class CodingAgent(BaseAgent):
             new_path=change.get("new_path"),
             find=change.get("find"),
             replace=change.get("replace"),
-            at_line=change.get("at_line"),
+            at_line=at_line,
         )

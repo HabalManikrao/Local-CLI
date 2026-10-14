@@ -101,3 +101,20 @@ def test_embedding_store_build_and_search(tmp_path):
     hits = store.search("cat cat cat", top_k=2)
     assert hits[0].path == "cats.py"
     db.close()
+
+
+def test_search_rejects_embedding_model_mismatch(tmp_path):
+    # Built with 'fake-embed'; querying under a different model would compare
+    # incompatible vectors (all-zero cosine). Must fail loud, not silently.
+    from cle.indexing.database import IndexDatabase
+    from cle.errors import ProviderError
+
+    (tmp_path / "cats.py").write_text("cat cat cat\n" * 3, encoding="utf-8")
+    db = IndexDatabase(tmp_path / ".cle" / "index" / "index.db")
+    EmbeddingStore(db, _DirectionalProvider(), "fake-embed").build(tmp_path)
+
+    stale = EmbeddingStore(db, _DirectionalProvider(), "a-different-model")
+    with pytest.raises(ProviderError) as exc:
+        stale.search("cat cat cat")
+    assert "cle embed" in (exc.value.remedy or "")
+    db.close()

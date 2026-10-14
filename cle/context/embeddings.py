@@ -13,6 +13,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..errors import ProviderError
 from ..indexing.database import IndexDatabase
 from ..indexing.repository import iter_source_files
 from ..indexing.symbols import detect_language
@@ -84,6 +85,17 @@ class EmbeddingStore:
 
     def search(self, query: str, top_k: int = 8) -> list[SemanticHit]:
         """Return the *top_k* chunks most similar to *query*."""
+        # Vectors are only comparable to a query embedded with the SAME model.
+        # If the configured model changed since `cle embed`, dimensions differ
+        # and every cosine would be 0.0 — silently blinding retrieval. Fail loud.
+        built_model = self.db.get_meta("embeddings_model")
+        if built_model and built_model != self.model:
+            raise ProviderError(
+                f"Semantic index was built with embedding model '{built_model}', "
+                f"but '{self.model}' is now configured; similarity would be "
+                f"meaningless.",
+                remedy="Rebuild the semantic index:\n  cle embed",
+            )
         rows = self.db.execute(
             "SELECT path, start, end, text, vector FROM embeddings"
         ).fetchall()

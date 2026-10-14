@@ -33,12 +33,14 @@ class AppContext:
 def _build_provider(config: Config) -> ModelProvider:
     provider_type = config.get("provider.type", "ollama")
     if provider_type == "ollama":
+        num_ctx = config.get("provider.num_ctx", None)
         return OllamaProvider(
             host=config.get("provider.host", "http://127.0.0.1:11434"),
             timeout_seconds=float(config.get("provider.timeout_seconds", 120)),
             connect_timeout_seconds=float(
                 config.get("provider.connect_timeout_seconds", 5)
             ),
+            num_ctx=int(num_ctx) if num_ctx else None,
         )
     # Only Ollama exists today; future providers slot in here behind the same
     # interface without touching callers.

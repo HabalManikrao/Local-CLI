@@ -8,8 +8,14 @@ provider:
   # Ollama connects to localhost by default (offline requirement).
   type: ollama
   host: "http://127.0.0.1:11434"
-  timeout_seconds: 120
+  # Context-heavy commands (explain/code/autopilot) build large prompts; on a
+  # CPU-only box even a small model can take minutes. Keep this generous.
+  timeout_seconds: 300
   connect_timeout_seconds: 5
+  # Ollama defaults to a 2048-token context window and silently truncates longer
+  # prompts (dropping retrieved context → wrong/empty plans). Size this to the
+  # prompt budget below plus response headroom. Lower it if you are RAM-limited.
+  num_ctx: 8192
 
 models:
   # Map task roles to Ollama model names. Leave blank until you pull models,

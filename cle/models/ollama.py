@@ -42,15 +42,25 @@ class OllamaProvider(ModelProvider):
         timeout_seconds: float = 120.0,
         connect_timeout_seconds: float = 5.0,
         *,
+        num_ctx: int | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.host = host.rstrip("/")
         self._timeout = httpx.Timeout(
             timeout_seconds, connect=connect_timeout_seconds
         )
+        # Ollama defaults num_ctx to 2048 tokens and silently truncates anything
+        # longer. Context-heavy commands build far bigger prompts, so we pass an
+        # explicit window; None leaves Ollama's default in place.
+        self._num_ctx = num_ctx
         # Injectable transport for tests (httpx.MockTransport); None uses the
         # real network transport.
         self._transport = transport
+
+    def _options(self) -> dict[str, Any] | None:
+        if self._num_ctx:
+            return {"num_ctx": self._num_ctx}
+        return None
 
     # -- internal helpers ---------------------------------------------------
 
@@ -143,6 +153,8 @@ class OllamaProvider(ModelProvider):
         payload: dict[str, Any] = {"model": model, "prompt": prompt, "stream": False}
         if system:
             payload["system"] = system
+        if (options := self._options()) is not None:
+            payload["options"] = options
         resp = self._post("/api/generate", payload)
         data = resp.json()
         return GenerateResult(
@@ -152,11 +164,13 @@ class OllamaProvider(ModelProvider):
         )
 
     def chat(self, model: str, messages: list[Message]) -> GenerateResult:
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": [m.to_dict() for m in messages],
             "stream": False,
         }
+        if (options := self._options()) is not None:
+            payload["options"] = options
         resp = self._post("/api/chat", payload)
         data = resp.json()
         return GenerateResult(
@@ -166,19 +180,31 @@ class OllamaProvider(ModelProvider):
         )
 
     def stream(self, model: str, messages: list[Message]) -> Iterator[str]:
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": [m.to_dict() for m in messages],
             "stream": True,
         }
+        if (options := self._options()) is not None:
+            payload["options"] = options
         try:
             with self._client() as client:
                 with client.stream("POST", "/api/chat", json=payload) as resp:
+                    # A streamed response is not auto-read; _raise_for_status
+                    # inspects .text, which would raise ResponseNotRead on a
+                    # real error body (e.g. HTTP 500 on model OOM).
+                    if resp.status_code >= 400:
+                        resp.read()
                     self._raise_for_status(resp, model)
                     for line in resp.iter_lines():
                         if not line:
                             continue
-                        chunk = json.loads(line)
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            # The daemon can emit non-JSON notices or a partial
+                            # line; skip rather than killing the chat session.
+                            continue
                         piece = chunk.get("message", {}).get("content", "")
                         if piece:
                             yield piece

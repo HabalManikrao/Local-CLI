@@ -7,12 +7,16 @@ here and rendered once, so individual commands don't repeat error plumbing.
 
 from __future__ import annotations
 
+import logging
+
 import typer
 
 from .. import __version__
 from ..errors import CleError
 from ..runtime import AppContext, build_context
 from . import commands, ui
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     name="cle",
@@ -69,6 +73,23 @@ def _run(fn, *args) -> None:
         code = fn(*args)
     except CleError as exc:
         ui.print_error(exc)
+        raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except KeyboardInterrupt:
+        ui.err_console.print("\n[dim]interrupted[/dim]")
+        raise typer.Exit(code=130)
+    except Exception as exc:  # last-resort guard: never dump a raw traceback
+        # The full traceback is logged (visible with --verbose); the user sees a
+        # structured message instead of a Python stack trace.
+        logger.exception("Unhandled error in %s", getattr(fn, "__name__", fn))
+        ui.print_error(CleError(
+            f"Unexpected error: {exc}",
+            remedy=(
+                "This is likely a bug. Re-run with --verbose to see the full "
+                "trace, then report it."
+            ),
+        ))
         raise typer.Exit(code=1)
     if code:
         raise typer.Exit(code=code)

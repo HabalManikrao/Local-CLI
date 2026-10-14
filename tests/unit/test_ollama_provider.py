@@ -63,11 +63,30 @@ def test_generate_returns_text():
         assert request.url.path == "/api/generate"
         body = json.loads(request.content)
         assert body["stream"] is False
+        # Default provider sends no options → Ollama keeps its own default.
+        assert "options" not in body
         return httpx.Response(200, json={"response": "hello", "eval_count": 5})
 
     res = _provider(handler).generate("m", "hi")
     assert res.text == "hello"
     assert res.metrics["eval_count"] == 5.0
+
+
+def test_num_ctx_is_sent_as_option_when_configured():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"response": "ok"})
+
+    provider = OllamaProvider(num_ctx=8192, transport=httpx.MockTransport(handler))
+    provider.generate("m", "a big prompt")
+    # Without this, Ollama silently truncates long prompts at its 2048 default.
+    assert seen["body"]["options"] == {"num_ctx": 8192}
+
+    # chat carries the same window.
+    provider.chat("m", [Message("user", "hi")])
+    assert seen["body"]["options"] == {"num_ctx": 8192}
 
 
 def test_chat_returns_message_content():
@@ -100,6 +119,30 @@ def test_stream_yields_chunks_until_done():
 
     chunks = list(_provider(handler).stream("m", [Message("user", "hi")]))
     assert "".join(chunks) == "hello"
+
+
+def test_stream_skips_non_json_lines():
+    # A real daemon can interleave a non-JSON notice line; it must not crash.
+    lines = [
+        json.dumps({"message": {"content": "he"}, "done": False}),
+        "this is not json",
+        json.dumps({"message": {"content": "llo"}, "done": True}),
+    ]
+
+    def handler(request):
+        return httpx.Response(200, text="\n".join(lines))
+
+    chunks = list(_provider(handler).stream("m", [Message("user", "hi")]))
+    assert "".join(chunks) == "hello"      # bad line skipped, not fatal
+
+
+def test_stream_http_error_is_structured_not_responsenotread():
+    # Streaming HTTP >=400 must surface as a ProviderError, not ResponseNotRead.
+    def handler(request):
+        return httpx.Response(500, text="model failed to load")
+
+    with pytest.raises(ProviderError):
+        list(_provider(handler).stream("m", [Message("user", "hi")]))
 
 
 def test_embed_returns_vector():

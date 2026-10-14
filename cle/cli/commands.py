@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from rich.markup import escape
+
 from .. import __version__, diagnostics
 from ..config import init_project_config, set_project_value
 from ..context.embeddings import EmbeddingStore
@@ -650,27 +652,33 @@ def cmd_rollback(ctx: AppContext, checkpoint_id: int | None, yes: bool) -> int:
 # -- cle code "<request>" ---------------------------------------------------
 
 def _render_plan(plan) -> None:
-    ui.console.print(f"\n[bold]Goal[/bold]: {plan.goal}")
+    # Model-derived text is escaped: a stray "[/...]" in the model's prose (type
+    # hints like Optional[str], regex, paths) would otherwise raise MarkupError.
+    ui.console.print(f"\n[bold]Goal[/bold]: {escape(str(plan.goal))}")
     if plan.files_inspected:
-        ui.console.print(f"[bold]Files inspected[/bold]: {', '.join(plan.files_inspected)}")
+        ui.console.print(
+            f"[bold]Files inspected[/bold]: {escape(', '.join(plan.files_inspected))}"
+        )
     if plan.reasoning:
-        ui.console.print(f"[bold]Reasoning[/bold]: {plan.reasoning}")
+        ui.console.print(f"[bold]Reasoning[/bold]: {escape(str(plan.reasoning))}")
     ui.console.print("\n[bold]Proposed changes[/bold]:")
     if not plan.changes:
         ui.console.print("  (none)")
     for c in plan.changes:
-        loc = c.get("path", "?")
-        if c.get("op", "").upper() == "RENAME_FILE":
-            loc += f" -> {c.get('new_path')}"
-        ui.console.print(f"  • {c.get('op')}: {loc} — {c.get('explanation', '')}")
+        loc = escape(str(c.get("path", "?")))
+        if str(c.get("op", "")).upper() == "RENAME_FILE":
+            loc += f" -> {escape(str(c.get('new_path')))}"
+        op = escape(str(c.get("op")))
+        why = escape(str(c.get("explanation", "")))
+        ui.console.print(f"  • {op}: {loc} — {why}")
     if plan.expected_impact:
-        ui.console.print(f"\n[bold]Expected impact[/bold]: {plan.expected_impact}")
+        ui.console.print(f"\n[bold]Expected impact[/bold]: {escape(str(plan.expected_impact))}")
     if plan.tests_to_run:
-        ui.console.print(f"[bold]Tests to run[/bold]: {', '.join(plan.tests_to_run)}")
+        ui.console.print(f"[bold]Tests to run[/bold]: {escape(', '.join(plan.tests_to_run))}")
     if plan.risks:
         ui.console.print("[bold]Risks[/bold]:")
         for r in plan.risks:
-            ui.console.print(f"  ! {r}")
+            ui.console.print(f"  ! {escape(str(r))}")
 
 
 def cmd_code(ctx: AppContext, request: str, yes: bool, no_apply: bool) -> int:
@@ -748,7 +756,7 @@ def cmd_code(ctx: AppContext, request: str, yes: bool, no_apply: bool) -> int:
         ui.print_error(exc)
         return 1
     for r in results:
-        ui.console.print(f"  [green]✓[/green] {r}")
+        ui.console.print(f"  [green]✓[/green] {escape(str(r))}")
     ctx.audit.event("code_applied", files=[op.path for op in plan.edit_plan.ops])
     ui.console.print(
         f"\nApplied {len(results)} change(s). Review with [bold]cle diff[/bold]; "

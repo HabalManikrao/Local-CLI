@@ -124,3 +124,67 @@ def test_cmd_code_applies_with_yes(tmp_path, capsys):
     code = commands.cmd_code(ctx, "add greeting", yes=True, no_apply=False)
     assert code == 0
     assert (tmp_path / "hello.py").read_text() == "print('hi')\n"
+
+
+# -- robustness against real-model output shapes (regressions) --------------
+# Mocks always return perfectly-formed output; these cover the messy shapes a
+# real model actually produces.
+
+@pytest.mark.integration
+def test_plan_rejects_non_list_changes(tmp_path):
+    # A real model sometimes returns "changes" as a list of bare strings.
+    bad = {"goal": "x", "changes": ["add add() to calc.py"]}
+    agent = _agent(tmp_path, bad)
+    with pytest.raises(AgentError):      # not AttributeError
+        agent.plan("do it")
+
+
+@pytest.mark.integration
+def test_plan_rejects_changes_as_object(tmp_path):
+    # "changes" as a dict (not a list) must fail cleanly, not iterate keys.
+    bad = {"goal": "x", "changes": {"op": "CREATE_FILE", "path": "a.py"}}
+    agent = _agent(tmp_path, bad)
+    with pytest.raises(AgentError):
+        agent.plan("do it")
+
+
+@pytest.mark.integration
+def test_plan_coerces_string_at_line(tmp_path):
+    # Models frequently emit numbers as strings: "at_line": "3".
+    plan_dict = {"goal": "x", "changes": [
+        {"op": "INSERT_CODE", "path": "hello.py", "at_line": "3",
+         "content": "x = 1\n", "explanation": "insert"}]}
+    agent = _agent(tmp_path, plan_dict)
+    plan = agent.plan("insert a line")
+    assert plan.edit_plan.ops[0].at_line == 3      # coerced to int, no TypeError
+
+
+@pytest.mark.integration
+def test_plan_rejects_non_numeric_at_line(tmp_path):
+    plan_dict = {"goal": "x", "changes": [
+        {"op": "INSERT_CODE", "path": "hello.py", "at_line": "somewhere",
+         "content": "x\n", "explanation": "insert"}]}
+    agent = _agent(tmp_path, plan_dict)
+    with pytest.raises(AgentError):
+        agent.plan("insert a line")
+
+
+@pytest.mark.integration
+def test_render_plan_survives_rich_markup_in_model_text(tmp_path, capsys):
+    # Model prose with "[/...]" or type hints must not raise rich MarkupError.
+    plan_dict = {
+        "goal": "fix the [/abc] parser bug",
+        "reasoning": "handle Optional[str] and arr[0] correctly",
+        "expected_impact": "closes [/tag]",
+        "risks": ["may touch list[int] handling"],
+        "tests_to_run": ["pytest"],
+        "changes": [
+            {"op": "CREATE_FILE", "path": "hello.py", "content": "x=1\n",
+             "explanation": "adds [/weird] marker"},
+        ],
+    }
+    ctx = make_context(tmp_path, provider=PlanProvider(plan_dict), models={"coding": "c"})
+    code = commands.cmd_code(ctx, "fix parser", yes=False, no_apply=True)
+    assert code == 0                               # did not crash on markup
+    out = capsys.readouterr().out
+    assert "[/abc]" in out                         # rendered literally, escaped

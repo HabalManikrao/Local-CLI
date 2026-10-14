@@ -8,6 +8,7 @@ satisfying the context-provenance requirement (§5/§10).
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +23,7 @@ from .embeddings import EmbeddingStore
 from ..tools.search import SearchMatch, search as exact_search
 
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -116,8 +118,10 @@ class ContextEngine:
                     reason=f"semantic similarity {hit.score:.2f}",
                     text=hit.text,
                 ))
-        except CleError:
-            pass  # embedding model/daemon unavailable — degrade to structural only
+        except CleError as exc:
+            # Embedding model/daemon unavailable or stale index — degrade to
+            # structural only, but log why (visible with --verbose).
+            logger.warning("Semantic retrieval skipped: %s", exc.message)
 
         items.sort(key=lambda it: it.relevance, reverse=True)
         return items[:max_items]

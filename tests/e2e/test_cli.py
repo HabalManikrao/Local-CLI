@@ -21,6 +21,23 @@ def test_version():
     assert "cle" in result.stdout
 
 
+def test_run_wraps_unexpected_error_without_traceback(capsys):
+    # A non-CleError from a command must become a structured message + exit 1,
+    # never a raw Python traceback dumped at the user.
+    import typer
+
+    from cle.cli.main import _run
+
+    def boom():
+        raise ValueError("kaboom")
+
+    with pytest.raises(typer.Exit) as exc:
+        _run(boom)
+    assert exc.value.exit_code == 1
+    err = capsys.readouterr().err
+    assert "Unexpected error" in err and "kaboom" in err
+
+
 def test_no_args_shows_help():
     result = runner.invoke(app, [])
     # no_args_is_help exits non-zero (2) but prints usage.

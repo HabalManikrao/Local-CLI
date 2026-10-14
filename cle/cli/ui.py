@@ -6,11 +6,32 @@ panels) so output stays consistent and commands stay terse.
 
 from __future__ import annotations
 
+import sys
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from ..errors import CleError
+
+
+def _force_utf8(stream) -> None:
+    """Make a text stream encode as UTF-8.
+
+    The default Windows console is cp1252, which cannot encode glyphs like
+    ``->`` arrows or most model output (emoji, math, non-Latin scripts). Writing
+    those would raise ``UnicodeEncodeError`` mid-render. Reconfiguring to UTF-8
+    with ``errors="replace"`` makes output robust on every terminal; the guard
+    keeps it a no-op where reconfigure is unavailable (e.g. captured streams).
+    """
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
+
+_force_utf8(sys.stdout)
+_force_utf8(sys.stderr)
 
 # A single shared console. stderr console is used for errors so stdout stays
 # clean for pipeable command output.
