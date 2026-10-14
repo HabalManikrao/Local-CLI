@@ -56,11 +56,13 @@ Nothing installed yet? Full procedure:
   `C:\Local-CLI`). *(Or, if Git is already present:
   `git clone https://github.com/HabalManikrao/Local-CLI.git C:\Local-CLI`.)*
 
-**2. Open PowerShell as Administrator.** Start menu → type **PowerShell** →
-right-click → **Run as administrator**. (Admin lets winget install
-Python/Git/Ollama machine-wide.)
+**2. Run the installer — easiest: just double-click `install.cmd`.** It asks for
+Administrator rights (click **Yes**), runs the install in a window, and keeps that
+window open at the end so you can read the result. No PowerShell policy changes,
+nothing to type.
 
-**3. Run the installer** from the folder you created:
+Prefer the command line? Open **PowerShell as Administrator** (Start menu → type
+**PowerShell** → right-click → **Run as administrator**), then:
 
 ```powershell
 cd "C:\Local-CLI"
@@ -70,8 +72,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -NonInteractive
 `-ExecutionPolicy Bypass` avoids the "scripts are disabled" block for this run;
 `-NonInteractive` makes it fully hands-off. Drop `-NonInteractive` to confirm each
 step, or add `-SkipModels` to install everything except the (large) models.
+(`install.cmd` accepts the same flags, e.g. double-clicking is equivalent to the
+interactive run; from a terminal you can do `install.cmd -SkipModels`.)
 
-**4. Verify:**
+**3. Verify:**
 
 ```powershell
 .\.venv\Scripts\cle.exe doctor
