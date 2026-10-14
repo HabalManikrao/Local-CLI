@@ -93,7 +93,7 @@ Write-Host 'Get-CleRecommendedModels / sizes'
 $rec = Get-CleRecommendedModels
 Assert-Equal 'four roles'      4 $rec.Keys.Count
 Assert-True  ($rec.Contains('fast') -and $rec.Contains('coding') -and $rec.Contains('reasoning') -and $rec.Contains('embedding')) 'all roles present'
-Assert-True  ((Get-CleApproxModelSizeGB -Model 'llama3.2') -gt 0) 'known model size > 0'
+Assert-True  ((Get-CleApproxModelSizeGB -Model $rec['coding']) -gt 0) 'known model size > 0'
 Assert-Equal 'unknown size 0'  0.0 (Get-CleApproxModelSizeGB -Model 'does-not-exist')
 
 # -- Offline helpers (Phase 13) ---------------------------------------------

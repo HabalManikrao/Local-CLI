@@ -155,11 +155,12 @@ function Get-CleConfiguredHost {
 }
 
 function Get-CleRecommendedModels {
-    <# Single source of truth for default role -> model mapping (RTX 3060 Ti / 32 GB). #>
+    <# Single source of truth for default role -> model mapping. Chosen from
+       models already pulled locally so a fresh install needs no downloads. #>
     return [ordered]@{
-        fast      = 'llama3.2'
-        coding    = 'qwen2.5-coder:7b'
-        reasoning = 'qwen2.5:7b'
+        fast      = 'tinyllama'
+        coding    = 'llama3.1:8b'
+        reasoning = 'llama3.1:8b'
         embedding = 'nomic-embed-text'
     }
 }
@@ -169,10 +170,11 @@ function Get-CleApproxModelSizeGB {
     [CmdletBinding()]
     param([string]$Model)
     $map = @{
-        'llama3.2'         = 2.0
-        'qwen2.5-coder:7b' = 4.7
-        'qwen2.5:7b'       = 4.7
+        'tinyllama'        = 0.6
+        'llama3.1:8b'      = 4.9
         'nomic-embed-text' = 0.3
+        'qwen3:1.7b'       = 1.4
+        'gemma4'           = 9.6
     }
     if ($map.ContainsKey($Model)) { return $map[$Model] }
     return 0.0

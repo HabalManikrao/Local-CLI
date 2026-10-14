@@ -90,9 +90,10 @@ All checks should be green (a GPU warning on a CPU-only machine is fine).
 
 > **Gotchas.** winget ships with Windows 10/11 as the *App Installer* — install it
 > from the Microsoft Store if it's missing. The first run needs internet
-> (prerequisites + ~11 GB of default models; CLE runs offline afterward). If a
-> command isn't found right after its tool was installed, open a **new** terminal
-> and re-run — the installer is idempotent and skips whatever is already done.
+> (prerequisites + any default models not already pulled — roughly 6 GB on a bare
+> machine; CLE runs offline afterward). If a command isn't found right after its
+> tool was installed, open a **new** terminal and re-run — the installer is
+> idempotent and skips whatever is already done.
 
 ### Completely offline (air-gapped) install
 
