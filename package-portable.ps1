@@ -9,13 +9,18 @@
     Python package, its config and build metadata — with build/venv/git/test
     artifacts stripped out. Re-run after changing the code to refresh it.
 
+.PARAMETER Zip
+    Also produce <OutDir>.zip (spec-compliant, forward-slash entries) next to it.
+
 .EXAMPLE
     .\package-portable.ps1
+.EXAMPLE
+    .\package-portable.ps1 -Zip
 .EXAMPLE
     .\package-portable.ps1 -OutDir D:\USB\CLE-Install
 #>
 [CmdletBinding()]
-param([string]$OutDir)
+param([string]$OutDir, [switch]$Zip)
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -59,6 +64,16 @@ $count = (Get-ChildItem -LiteralPath $OutDir -Recurse -File).Count
 $bytes = (Get-ChildItem -LiteralPath $OutDir -Recurse -File | Measure-Object -Property Length -Sum).Sum
 $mb = [math]::Round($bytes / 1MB, 2)
 Write-Host ("Done: {0} files, {1} MB" -f $count, $mb) -ForegroundColor Green
+
+if ($Zip) {
+    $zipPath = "$OutDir.zip"
+    if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+    # Zips the folder itself so it extracts to a single CLE-Install\ folder.
+    Compress-Archive -Path $OutDir -DestinationPath $zipPath -CompressionLevel Optimal
+    $zmb = [math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 2)
+    Write-Host ("Zipped: {0} ({1} MB)" -f $zipPath, $zmb) -ForegroundColor Green
+}
+
 Write-Host ""
-Write-Host "Copy this folder to the new machine, then double-click install.cmd inside it." -ForegroundColor Cyan
+Write-Host "Copy this folder (or the .zip) to the new machine, then double-click install.cmd inside it." -ForegroundColor Cyan
 Write-Host $OutDir
