@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from cle.context.chunker import chunk_text
 from cle.context.embeddings import EmbeddingStore, _cosine
 from cle.evidence import EvidenceSource, assert_no_upgrade
 from cle.tools.search import search as exact_search
-
 
 # -- evidence ---------------------------------------------------------------
 
@@ -106,8 +103,8 @@ def test_embedding_store_build_and_search(tmp_path):
 def test_search_rejects_embedding_model_mismatch(tmp_path):
     # Built with 'fake-embed'; querying under a different model would compare
     # incompatible vectors (all-zero cosine). Must fail loud, not silently.
-    from cle.indexing.database import IndexDatabase
     from cle.errors import ProviderError
+    from cle.indexing.database import IndexDatabase
 
     (tmp_path / "cats.py").write_text("cat cat cat\n" * 3, encoding="utf-8")
     db = IndexDatabase(tmp_path / ".cle" / "index" / "index.db")

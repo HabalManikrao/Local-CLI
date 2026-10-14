@@ -12,24 +12,23 @@ from pathlib import Path
 from rich.markup import escape
 
 from .. import __version__, diagnostics
-from ..config import init_project_config, set_project_value
-from ..context.embeddings import EmbeddingStore
-from ..context.manager import ContextManager
-from ..context.retrieval import ContextEngine
-from ..errors import CleError, ProjectError
-from ..indexing.repository import RepositoryIndex
 from ..agents.coding import CodingAgent
 from ..agents.debugging import DebugAgent
 from ..agents.testing import TestAgent
-from ..memory.project import KINDS, ProjectMemory, TEST_COMMAND
+from ..config import init_project_config, set_project_value
+from ..context.embeddings import EmbeddingStore
+from ..context.retrieval import ContextEngine
+from ..errors import CleError, ProjectError
+from ..indexing.repository import RepositoryIndex
+from ..memory.project import KINDS, TEST_COMMAND, ProjectMemory
 from ..models.base import Message
+from ..models.registry import ROLES
+from ..project import git_is_available
+from ..runtime import AppContext
 from ..safety.permissions import PermissionGuard, PermissionPolicy, approve_all
 from ..tools.checkpoints import CheckpointStore
 from ..tools.filesystem import FileSystem
 from ..tools.git import GitRepo
-from ..models.registry import ROLES
-from ..project import detect_project, git_is_available
-from ..runtime import AppContext
 from . import ui
 
 _STATUS_RENDER = {"ok": ui.OK, "warn": ui.WARN, "fail": ui.FAIL}
@@ -783,7 +782,6 @@ def _test_command_override(ctx: AppContext) -> list[str] | None:
 
 
 def _report_test_result(result) -> None:
-    from ..tools.test_runner import BuildSystem
     if result.error:
         ui.print_error(CleError(
             result.error,
@@ -1107,6 +1105,7 @@ def cmd_autopilot(ctx: AppContext, task: str, max_iterations: int | None, yes: b
 
 def _system_metrics() -> dict:
     import os
+
     from .. import diagnostics
     metrics: dict = {"cpu_count": os.cpu_count()}
     smi = diagnostics._find_nvidia_smi()

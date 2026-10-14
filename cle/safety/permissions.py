@@ -14,9 +14,9 @@ CLI, auto-decision in tests).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 
 from ..config import Config
 from ..errors import PermissionDeniedError
@@ -60,7 +60,7 @@ class PermissionPolicy:
     require_git: bool = True
 
     @classmethod
-    def from_config(cls, config: Config) -> "PermissionPolicy":
+    def from_config(cls, config: Config) -> PermissionPolicy:
         return cls(
             require_approval=bool(config.get("safety.require_approval", True)),
             allow_delete=bool(config.get("safety.allow_delete", False)),

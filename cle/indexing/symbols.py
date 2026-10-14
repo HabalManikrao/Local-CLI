@@ -234,6 +234,7 @@ def _parse_java(text: str) -> FileParse:
         # Member directly inside a type body (one level below the type's brace)?
         in_type_body = enclosing is not None and depth == enclosing["open_depth"] + 1
         if in_type_body and stripped:
+            assert enclosing is not None  # implied by in_type_body
             member = _match_member(cline, idx, enclosing["name"])
             if member is not None:
                 if pending_annotations:

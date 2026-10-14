@@ -9,8 +9,9 @@ never see raw HTTP/socket exceptions.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Iterator, Literal
+from typing import Literal
 
 Role = Literal["system", "user", "assistant"]
 

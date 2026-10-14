@@ -15,14 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..context.manager import ContextManager
-from ..errors import CleError
 from ..tools.edits import (
-    CREATE_FILE,
-    INSERT_CODE,
-    MODIFY_FILE,
     OP_TYPES,
-    RENAME_FILE,
-    REPLACE_BLOCK,
     EditOp,
     EditPlan,
 )
@@ -145,11 +139,11 @@ class CodingAgent(BaseAgent):
         if at_line is not None:
             try:
                 at_line = int(at_line)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as exc:
                 raise AgentError(
                     f"Model proposed a non-integer at_line: {at_line!r}",
                     remedy="Retry the request.",
-                )
+                ) from exc
         return EditOp(
             op=op,
             path=str(change.get("path", "")),

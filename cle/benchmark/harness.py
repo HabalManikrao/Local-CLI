@@ -11,9 +11,9 @@ Resource metrics (GPU/RAM) are best-effort and simply omitted when unavailable
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from ..config import Config
 from ..models.base import ModelProvider

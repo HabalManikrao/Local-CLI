@@ -73,12 +73,12 @@ def _run(fn, *args) -> None:
         code = fn(*args)
     except CleError as exc:
         ui.print_error(exc)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     except typer.Exit:
         raise
     except KeyboardInterrupt:
         ui.err_console.print("\n[dim]interrupted[/dim]")
-        raise typer.Exit(code=130)
+        raise typer.Exit(code=130) from None
     except Exception as exc:  # last-resort guard: never dump a raw traceback
         # The full traceback is logged (visible with --verbose); the user sees a
         # structured message instead of a Python stack trace.
@@ -90,7 +90,7 @@ def _run(fn, *args) -> None:
                 "trace, then report it."
             ),
         ))
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     if code:
         raise typer.Exit(code=code)
 

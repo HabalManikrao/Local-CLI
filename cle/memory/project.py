@@ -63,7 +63,8 @@ class ProjectMemory:
                 "VALUES(?,?,?,?,?)",
                 (kind, title, body, json.dumps(meta) if meta else None, _now()),
             )
-            return int(cur.lastrowid)
+            assert cur.lastrowid is not None  # guaranteed after INSERT
+            return cur.lastrowid
 
     def entries(self, kind: str | None = None) -> list[Entry]:
         if kind:

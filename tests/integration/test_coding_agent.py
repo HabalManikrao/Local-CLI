@@ -14,9 +14,7 @@ from cle.models.registry import ModelRegistry
 from cle.models.router import ModelRouter
 from cle.safety.permissions import PermissionGuard, PermissionPolicy, approve_all
 from cle.tools.filesystem import FileSystem
-
 from tests.conftest import FakeProvider, make_context
-
 
 # -- extract_json -----------------------------------------------------------
 

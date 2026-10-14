@@ -7,7 +7,6 @@ import pytest
 from cle.cli import commands
 from cle.context.retrieval import ContextEngine
 from cle.indexing.repository import RepositoryIndex
-
 from tests.conftest import make_context
 
 

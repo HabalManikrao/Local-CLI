@@ -11,9 +11,9 @@ via the stored file hash is a future optimization noted in the audit.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterator
 
 from ..logging_setup import get_logger
 from .database import IndexDatabase
@@ -54,7 +54,7 @@ class IndexStats:
     parsed: int = 0
     symbols: int = 0
     imports: int = 0
-    languages: dict[str, int] | None = None
+    languages: dict[str, int] = field(default_factory=dict)
 
 
 class IndexBuilder:

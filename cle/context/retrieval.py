@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import Config
@@ -19,8 +19,9 @@ from ..evidence import EvidenceSource
 from ..indexing.repository import RepositoryIndex
 from ..models.base import ModelProvider
 from ..models.registry import ModelRegistry
+from ..tools.search import SearchMatch
+from ..tools.search import search as exact_search
 from .embeddings import EmbeddingStore
-from ..tools.search import SearchMatch, search as exact_search
 
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
 logger = logging.getLogger(__name__)

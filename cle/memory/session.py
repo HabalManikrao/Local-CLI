@@ -26,7 +26,8 @@ class SessionMemory:
                 "INSERT INTO sessions(started_at, label) VALUES(?, ?)",
                 (_now(), label),
             )
-            return int(cur.lastrowid)
+            assert cur.lastrowid is not None  # guaranteed after INSERT
+            return cur.lastrowid
 
     def add_turn(self, session_id: int, role: str, content: str) -> None:
         with self.db.transaction() as conn:

@@ -11,7 +11,8 @@ with basic timeout and error handling; Milestone 2 hardens edge cases.
 from __future__ import annotations
 
 import json
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import httpx
 
@@ -188,28 +189,30 @@ class OllamaProvider(ModelProvider):
         if (options := self._options()) is not None:
             payload["options"] = options
         try:
-            with self._client() as client:
-                with client.stream("POST", "/api/chat", json=payload) as resp:
-                    # A streamed response is not auto-read; _raise_for_status
-                    # inspects .text, which would raise ResponseNotRead on a
-                    # real error body (e.g. HTTP 500 on model OOM).
-                    if resp.status_code >= 400:
-                        resp.read()
-                    self._raise_for_status(resp, model)
-                    for line in resp.iter_lines():
-                        if not line:
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                        except json.JSONDecodeError:
-                            # The daemon can emit non-JSON notices or a partial
-                            # line; skip rather than killing the chat session.
-                            continue
-                        piece = chunk.get("message", {}).get("content", "")
-                        if piece:
-                            yield piece
-                        if chunk.get("done"):
-                            break
+            with (
+                self._client() as client,
+                client.stream("POST", "/api/chat", json=payload) as resp,
+            ):
+                # A streamed response is not auto-read; _raise_for_status
+                # inspects .text, which would raise ResponseNotRead on a
+                # real error body (e.g. HTTP 500 on model OOM).
+                if resp.status_code >= 400:
+                    resp.read()
+                self._raise_for_status(resp, model)
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        # The daemon can emit non-JSON notices or a partial
+                        # line; skip rather than killing the chat session.
+                        continue
+                    piece = chunk.get("message", {}).get("content", "")
+                    if piece:
+                        yield piece
+                    if chunk.get("done"):
+                        break
         except httpx.ConnectError as exc:
             raise ProviderConnectionError(
                 f"Could not connect to Ollama at {self.host}.",

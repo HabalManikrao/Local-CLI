@@ -8,7 +8,6 @@ import pytest
 
 from cle.cli import commands
 from cle.models.base import GenerateResult
-
 from tests.conftest import FakeProvider, make_context
 
 

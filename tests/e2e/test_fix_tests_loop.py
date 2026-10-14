@@ -7,7 +7,6 @@ import json
 import pytest
 
 from cle.cli import commands
-
 from tests.conftest import FakeProvider, make_context
 
 

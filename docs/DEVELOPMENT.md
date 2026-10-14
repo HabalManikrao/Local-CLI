@@ -23,6 +23,18 @@ pytest -m e2e          # CLI + real pytest subprocess (coding/fix-tests/autopilo
 All LLM interaction is faked (`tests/conftest.py::FakeProvider`) or mocked
 (`httpx.MockTransport`), so nothing needs a running daemon.
 
+## Lint & type-check
+
+```powershell
+ruff check .           # lint (import order, pyflakes, bugbear, pyupgrade, ...)
+ruff check . --fix     # auto-fix the safe findings
+mypy                   # type-check the cle package
+```
+
+CI (`.github/workflows/ci.yml`) runs `ruff`, `mypy`, and `pytest` on every push
+and PR — lint/type-check once on Linux, tests across Linux+Windows × Py 3.11/3.12.
+Config for both tools lives in `pyproject.toml` (`[tool.ruff]`, `[tool.mypy]`).
+
 ## Layout
 
 - `cle/` — the package (see [ARCHITECTURE.md](ARCHITECTURE.md)).

@@ -8,7 +8,6 @@ from cle.cli import commands
 from cle.memory import decisions
 from cle.memory.project import DECISION, ISSUE, ProjectMemory
 from cle.memory.session import SessionMemory
-
 from tests.conftest import make_context
 
 

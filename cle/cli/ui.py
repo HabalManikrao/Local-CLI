@@ -6,6 +6,7 @@ panels) so output stays consistent and commands stay terse.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 
 from rich.console import Console
@@ -24,10 +25,8 @@ def _force_utf8(stream) -> None:
     with ``errors="replace"`` makes output robust on every terminal; the guard
     keeps it a no-op where reconfigure is unavailable (e.g. captured streams).
     """
-    try:
+    with contextlib.suppress(AttributeError, ValueError, OSError):
         stream.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, ValueError, OSError):
-        pass
 
 
 _force_utf8(sys.stdout)

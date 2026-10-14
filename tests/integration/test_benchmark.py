@@ -10,13 +10,11 @@ from cle.benchmark.harness import (
     BenchContext,
     BenchmarkResult,
     BenchmarkSuite,
-    BenchmarkTask,
     summarize,
 )
 from cle.benchmark.tasks import _task_context_retrieval, default_suite
 from cle.cli import commands
 from cle.models.base import GenerateResult
-
 from tests.conftest import FakeProvider, make_context
 
 

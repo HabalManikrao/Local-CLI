@@ -2,7 +2,6 @@ from cle import diagnostics
 from cle.config import load_config
 from cle.models.registry import ModelRegistry
 from cle.project import detect_project
-
 from tests.conftest import FakeProvider
 
 

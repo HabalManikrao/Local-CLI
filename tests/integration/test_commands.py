@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from cle.cli import commands
 from cle.config import load_config
-
 from tests.conftest import FakeProvider, make_context
 
 

@@ -12,9 +12,9 @@ Sessions/conversations live in their own tables (see :mod:`cle.memory.session`).
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 SCHEMA_VERSION = 1
 

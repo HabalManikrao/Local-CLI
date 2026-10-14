@@ -23,7 +23,7 @@ dependencies = [
 semantic = ["faiss-cpu>=1.8"]
 parsing = ["tree-sitter>=0.21", "tree-sitter-java>=0.21"]
 tui = ["textual>=0.60"]
-dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
 cle = "cle.cli.main:app"
@@ -39,3 +39,31 @@ markers = [
     "integration: integration tests (temp git repos, sqlite, ripgrep)",
     "e2e: end-to-end CLI subprocess tests",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", "dist", "build", "local_cle.egg-info"]
+
+[tool.ruff.lint]
+# Pyflakes (F), pycodestyle (E/W), import-sort (I), bugbear (B), pyupgrade (UP),
+# comprehensions (C4), simplify (SIM). A pragmatic, low-noise starting set.
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM"]
+ignore = [
+    "E501",   # line length: mostly long string-literal schema examples; a
+              # formatter's concern, not worth wrapping prose/JSON by hand.
+    "UP042",  # `str, Enum` is intentional (3.11); StrEnum changes str()/format.
+    "SIM112",  # "SystemRoot" is the canonical Windows env-var spelling.
+]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["cle"]
+# Optional native deps (faiss, tree_sitter, textual) and untyped libs.
+ignore_missing_imports = true
+# Catch real bugs (e.g. str - int) even in not-fully-annotated functions,
+# without demanding complete annotations across the codebase yet.
+check_untyped_defs = true
+warn_redundant_casts = true
+no_implicit_optional = true
+warn_unused_ignores = true

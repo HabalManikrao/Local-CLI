@@ -29,7 +29,8 @@ from cle.tools.filesystem import FileSystem
 
 
 def _policy(**kw) -> PermissionPolicy:
-    base = dict(require_approval=True, allow_delete=False, allow_network=False, require_git=True)
+    base = {"require_approval": True, "allow_delete": False,
+            "allow_network": False, "require_git": True}
     base.update(kw)
     return PermissionPolicy(**base)
 

@@ -4,10 +4,10 @@ import pytest
 
 from cle.config import (
     Config,
+    _deep_merge,
     load_config,
     load_defaults,
     set_project_value,
-    _deep_merge,
 )
 from cle.errors import ConfigError
 
