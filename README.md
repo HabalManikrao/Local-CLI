@@ -47,6 +47,44 @@ offline-bundle machinery:
 Requirements: Windows 10/11 + PowerShell 5.1+, winget for auto-install, internet
 for the first run (CLE runs offline afterward). NVIDIA GPU optional (CPU works).
 
+### Set up a brand-new Windows machine (from scratch)
+
+Nothing installed yet? Full procedure:
+
+**1. Get the code onto the machine.**
+- Download the ZIP: on GitHub, **Code ▸ Download ZIP**, then extract (e.g. to
+  `C:\Local-CLI`). *(Or, if Git is already present:
+  `git clone https://github.com/HabalManikrao/Local-CLI.git C:\Local-CLI`.)*
+
+**2. Open PowerShell as Administrator.** Start menu → type **PowerShell** →
+right-click → **Run as administrator**. (Admin lets winget install
+Python/Git/Ollama machine-wide.)
+
+**3. Run the installer** from the folder you created:
+
+```powershell
+cd "C:\Local-CLI"
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -NonInteractive
+```
+
+`-ExecutionPolicy Bypass` avoids the "scripts are disabled" block for this run;
+`-NonInteractive` makes it fully hands-off. Drop `-NonInteractive` to confirm each
+step, or add `-SkipModels` to install everything except the (large) models.
+
+**4. Verify:**
+
+```powershell
+.\.venv\Scripts\cle.exe doctor
+```
+
+All checks should be green (a GPU warning on a CPU-only machine is fine).
+
+> **Gotchas.** winget ships with Windows 10/11 as the *App Installer* — install it
+> from the Microsoft Store if it's missing. The first run needs internet
+> (prerequisites + ~11 GB of default models; CLE runs offline afterward). If a
+> command isn't found right after its tool was installed, open a **new** terminal
+> and re-run — the installer is idempotent and skips whatever is already done.
+
 ### Completely offline (air-gapped) install
 
 Prepare a bundle on an internet PC, copy it via USB, install with no internet:
