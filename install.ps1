@@ -167,22 +167,32 @@ else {
 }
 
 # -- 5. Initialize project + assign roles -----------------------------------
+# `cle init` / `cle model use` act on the CURRENT directory, so anchor them to
+# the install folder. This matters especially after UAC self-elevation, where
+# the working directory would otherwise be C:\Windows\System32.
 Write-CleLog 'Configure' -Level STEP
-if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot '.cle\config.yaml'))) {
-    & $cle init | Out-Host
-}
-if (-not $SkipModels -and $daemonUp) {
-    $installed = Get-CleModelNames -OllamaListOutput (Invoke-CleCapture -Exe 'ollama' -Arguments @('list'))
-    foreach ($role in $recommended.Keys) {
-        $model = $recommended[$role]
-        if (Test-CleModelInstalled -Installed $installed -Model $model) {
-            & $cle model use $role $model | Out-Null
-            Add-Line "role:$role" 'OK' "-> $model"
-        }
-        else {
-            Add-Line "role:$role" 'WARN' "$model not installed; role left unset"
+Push-Location -LiteralPath $RepoRoot
+[Environment]::CurrentDirectory = $RepoRoot
+try {
+    if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot '.cle\config.yaml'))) {
+        & $cle init | Out-Host
+    }
+    if (-not $SkipModels -and $daemonUp) {
+        $installed = Get-CleModelNames -OllamaListOutput (Invoke-CleCapture -Exe 'ollama' -Arguments @('list'))
+        foreach ($role in $recommended.Keys) {
+            $model = $recommended[$role]
+            if (Test-CleModelInstalled -Installed $installed -Model $model) {
+                & $cle model use $role $model | Out-Null
+                Add-Line "role:$role" 'OK' "-> $model"
+            }
+            else {
+                Add-Line "role:$role" 'WARN' "$model not installed; role left unset"
+            }
         }
     }
+}
+finally {
+    Pop-Location
 }
 
 # -- Summary ----------------------------------------------------------------

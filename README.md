@@ -55,6 +55,11 @@ Nothing installed yet? Full procedure:
 - Download the ZIP: on GitHub, **Code ▸ Download ZIP**, then extract (e.g. to
   `C:\Local-CLI`). *(Or, if Git is already present:
   `git clone https://github.com/HabalManikrao/Local-CLI.git C:\Local-CLI`.)*
+- **Or carry a lean, self-contained folder.** On a machine that already has the
+  repo, run `.\package-portable.ps1` to produce `dist\CLE-Install\` — just the
+  files the installer needs (both installers, the `cle` package, config, and the
+  setup module; no venv/git/test cruft). Copy that one folder to the new machine
+  and continue below.
 
 **2. Run the installer — easiest: just double-click `install.cmd`.** It asks for
 Administrator rights (click **Yes**), runs the install in a window, and keeps that
