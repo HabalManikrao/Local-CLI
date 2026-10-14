@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Local CLE (Local CLI Engineering)** — an offline-first, Ollama-powered local
 software engineering agent. A single Python 3.11+ package (`cle/`), Windows-first.
 Stack: `typer` + `rich` + `httpx` + `PyYAML`, SQLite for index/memory, ripgrep for
-search. FAISS and tree-sitter are optional extras that degrade gracefully when absent.
+search (pure-Python fallback when `rg` is absent). Semantic search uses a
+pure-Python cosine index and Java parsing a heuristic scanner — FAISS/tree-sitter
+are possible future accelerations, not currently wired in.
 
 ## Commands
 
@@ -20,10 +22,13 @@ pytest tests/unit             # fast unit tests
 pytest -m integration         # temp git repos, sqlite, ripgrep
 pytest -m e2e                 # CLI + real pytest subprocess (coding/fix-tests/autopilot)
 pytest tests/unit/test_x.py::test_name   # a single test
-pip install -e ".[dev]"       # install with dev deps; extras: [semantic] [parsing] [tui]
+pip install -e ".[dev]"       # install with dev deps (pytest, ruff, mypy)
+ruff check .                  # lint   (config in pyproject.toml [tool.ruff])
+mypy                          # type-check the cle package
 ```
 
-There is no lint/format step configured. The app itself runs via the `cle` console
+CI (`.github/workflows/ci.yml`) runs ruff + mypy + pytest on push/PR (lint once on
+Linux; tests across Linux+Windows × Py 3.11/3.12). The app runs via the `cle` console
 script (e.g. `cle doctor`, `cle index`, `cle ask "..."`); see README.md for the full
 command catalog.
 

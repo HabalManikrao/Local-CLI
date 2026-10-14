@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from cle.cli import commands
+from cle.cli import commands, ui
 from cle.config import load_config
+from cle.errors import ProviderError
 from tests.conftest import FakeProvider, make_context
 
 
@@ -33,6 +34,44 @@ def test_cmd_ask_routes_to_fast_model(project_dir):
     code = commands.cmd_ask(ctx, "what is 2+2?")
     assert code == 0
     assert provider.calls == [("generate", "fastmodel")]
+
+
+# -- cle chat (interactive streaming REPL) ----------------------------------
+
+def _scripted_input(monkeypatch, lines):
+    it = iter(lines)
+    monkeypatch.setattr(ui.console, "input", lambda *a, **k: next(it))
+
+
+def test_cmd_chat_streams_then_exits(project_dir, monkeypatch, capsys):
+    ctx = make_context(project_dir, provider=FakeProvider(), models={"fast": "f"})
+    # Blank line is skipped; "exit" quits. FakeProvider.stream echoes the words.
+    _scripted_input(monkeypatch, ["", "hello world", "exit"])
+    assert commands.cmd_chat(ctx) == 0
+    out = capsys.readouterr().out
+    assert "hello" in out and "world" in out
+    assert "bye" in out
+
+
+def test_cmd_chat_exits_on_eof(project_dir, monkeypatch):
+    ctx = make_context(project_dir, provider=FakeProvider(), models={"fast": "f"})
+    def raise_eof(*a, **k):
+        raise EOFError
+    monkeypatch.setattr(ui.console, "input", raise_eof)
+    assert commands.cmd_chat(ctx) == 0
+
+
+def test_cmd_chat_recovers_from_stream_error(project_dir, monkeypatch, capsys):
+    # A provider error mid-chat prints the error, drops the turn, and the REPL
+    # keeps going to the next prompt instead of crashing.
+    class FailingProvider(FakeProvider):
+        def stream(self, model, messages):
+            raise ProviderError("daemon died", remedy="start ollama")
+
+    ctx = make_context(project_dir, provider=FailingProvider(), models={"fast": "f"})
+    _scripted_input(monkeypatch, ["hi", "exit"])
+    assert commands.cmd_chat(ctx) == 0
+    assert "daemon died" in capsys.readouterr().err
 
 
 def test_cmd_ask_errors_when_role_unset(project_dir, capsys):

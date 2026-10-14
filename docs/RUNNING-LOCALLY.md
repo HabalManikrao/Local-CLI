@@ -68,13 +68,15 @@ python -m pip install --upgrade pip
 pip install -e .
 ```
 
-This installs the `cle` command into the virtual environment. Optional extras:
+This installs the `cle` command into the virtual environment. For development
+(tests + linters):
 
 ```powershell
-pip install -e ".[semantic]"   # FAISS (faster semantic search; optional)
-pip install -e ".[parsing]"    # tree-sitter (more precise Java parsing; optional)
-pip install -e ".[dev]"        # pytest etc. (for development)
+pip install -e ".[dev]"        # pytest, ruff, mypy
 ```
+
+Semantic search, Java parsing and the dashboard are all built-in — no extra
+native dependencies to install.
 
 > **Activating the venv later.** Each new terminal:
 > ```powershell

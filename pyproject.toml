@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-cle"
-version = "0.1.0"
+dynamic = ["version"]              # single-sourced from cle.__version__
 description = "Local CLI Engineering (CLE) — offline-first, Ollama-powered local software engineering agent."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,17 +19,24 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Semantic search / precise structural parsing — light up when installed.
-semantic = ["faiss-cpu>=1.8"]
-parsing = ["tree-sitter>=0.21", "tree-sitter-java>=0.21"]
-tui = ["textual>=0.60"]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "mypy>=1.11"]
+# Note: FAISS (semantic), tree-sitter (parsing) and textual (TUI) are *potential*
+# future accelerations. They are intentionally NOT declared as extras because
+# nothing imports them yet — the pure-Python cosine index, the heuristic Java
+# scanner and the Rich dashboard are the real implementations. Add an extra here
+# only when code actually consumes the dependency.
 
 [project.scripts]
 cle = "cle.cli.main:app"
 
+[tool.setuptools.dynamic]
+version = { attr = "cle.__version__" }
+
 [tool.setuptools.packages.find]
 include = ["cle*"]
+
+[tool.setuptools.package-data]
+cle = ["py.typed"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -64,7 +71,7 @@ ignore = [
 [tool.mypy]
 python_version = "3.11"
 files = ["cle"]
-# Optional native deps (faiss, tree_sitter, textual) and untyped libs.
+# Third-party libs without type stubs (typer/rich internals, etc.).
 ignore_missing_imports = true
 # Catch real bugs (e.g. str - int) even in not-fully-annotated functions,
 # without demanding complete annotations across the codebase yet.

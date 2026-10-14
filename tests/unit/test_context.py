@@ -138,3 +138,40 @@ def test_search_rejects_embedding_model_mismatch(tmp_path):
         stale.search("cat cat cat")
     assert "cle embed" in (exc.value.remedy or "")
     db.close()
+
+
+# -- context manager (token budget) -----------------------------------------
+
+def test_context_manager_truncates_to_token_budget(tmp_path):
+    from cle.config import init_project_config, load_config, set_project_value
+    from cle.context.manager import ContextManager
+    from cle.context.retrieval import ContextItem
+
+    init_project_config(tmp_path)
+    set_project_value(tmp_path, "context.max_tokens", 50)   # ~200 char budget
+    cfg = load_config(tmp_path)
+
+    items = [
+        ContextItem(path=f"f{i}.py", line_start=1, line_end=2, kind="chunk",
+                    symbol=None, relevance=1.0, reason="r", text="x" * 150)
+        for i in range(5)
+    ]
+    block, included = ContextManager(cfg).build_block(items)
+    assert 1 <= len(included) < len(items)   # first always kept, rest truncated
+    assert block.count("```") == len(included) * 2
+
+
+def test_context_manager_keeps_all_within_budget(tmp_path):
+    from cle.config import init_project_config, load_config
+    from cle.context.manager import ContextManager
+    from cle.context.retrieval import ContextItem
+
+    init_project_config(tmp_path)   # default budget is generous (8000 tokens)
+    cfg = load_config(tmp_path)
+    items = [
+        ContextItem(path=f"f{i}.py", line_start=1, line_end=2, kind="chunk",
+                    symbol=None, relevance=1.0, reason="r", text="small")
+        for i in range(3)
+    ]
+    _, included = ContextManager(cfg).build_block(items)
+    assert len(included) == 3

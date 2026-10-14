@@ -8,8 +8,9 @@ python -m venv .venv
 pip install -e ".[dev]"
 ```
 
-Optional extras: `pip install -e ".[semantic]"` (FAISS), `".[parsing]"`
-(tree-sitter), `".[tui]"` (Textual).
+Semantic search (pure-Python cosine), Java parsing (heuristic scanner) and the
+dashboard (Rich) are all built-in — there are no FAISS/tree-sitter/Textual extras
+to install. The `[dev]` extra adds pytest, ruff and mypy.
 
 ## Running the tests
 
