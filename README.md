@@ -33,6 +33,17 @@ troubleshooting: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 .\setup.ps1 -SkipModels    # skip model downloads
 ```
 
+Prefer a lean, no-frills install? `install.ps1` does just the essentials —
+install prerequisites (skipping any already present), set up the package, pull
+only the missing models, and assign roles — without the test-suite / smoke-test /
+offline-bundle machinery:
+
+```powershell
+.\install.ps1                 # interactive
+.\install.ps1 -NonInteractive # unattended (auto-yes) for a fresh machine
+.\install.ps1 -SkipModels     # prerequisites + package only
+```
+
 Requirements: Windows 10/11 + PowerShell 5.1+, winget for auto-install, internet
 for the first run (CLE runs offline afterward). NVIDIA GPU optional (CPU works).
 
