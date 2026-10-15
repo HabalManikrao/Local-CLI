@@ -291,6 +291,30 @@ function Update-CleProcessPath {
     $env:Path = ($parts -join ';')
 }
 
+function Register-CleGlobalCommand {
+    <# Make `cle` runnable from any directory by dropping a small wrapper on the
+       user's PATH that forwards to the venv's cle.exe. Idempotent; returns the
+       wrapper path. A shim (not venv\Scripts on PATH) avoids exposing the
+       venv's python/pip globally. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$VenvCleExe)
+    $binDir = Join-Path $env:LOCALAPPDATA 'CLE\bin'
+    New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    $shim = Join-Path $binDir 'cle.cmd'
+    Set-Content -LiteralPath $shim -Encoding ASCII -Value @('@echo off', "`"$VenvCleExe`" %*")
+
+    # Append to the USER PATH (persisted) if not already present.
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (-not $userPath) { $userPath = '' }
+    $parts = @($userPath -split ';' | Where-Object { $_ -ne '' })
+    if ($parts -notcontains $binDir) {
+        [Environment]::SetEnvironmentVariable('Path', (@($parts + $binDir) -join ';'), 'User')
+    }
+    # Also expose it in the current process so it works without a restart here.
+    if (($env:Path -split ';') -notcontains $binDir) { $env:Path = "$env:Path;$binDir" }
+    return $shim
+}
+
 function Test-CleOllamaApi {
     <# True if the Ollama API answers on $BaseUrl/api/tags within $TimeoutSec. #>
     [CmdletBinding()]
@@ -497,7 +521,7 @@ Export-ModuleMember -Function `
     ConvertFrom-CleHostUrl, Get-CleConfiguredHost, `
     Get-CleRecommendedModels, Get-CleApproxModelSizeGB, `
     Test-CleCommand, Invoke-CleCapture, Get-ClePython, Get-CleGpu, `
-    Get-CleRamGB, Test-CleAdmin, Update-CleProcessPath, `
+    Get-CleRamGB, Test-CleAdmin, Update-CleProcessPath, Register-CleGlobalCommand, `
     Test-CleOllamaApi, Wait-CleOllamaApi, Install-CleWingetPackage, `
     Get-CleFileSha256, Test-CleFileSha256, Format-CleSize, Get-CleFreeDiskGB, `
     Get-CleOllamaModelsDir, Resolve-CleModelRef, ConvertTo-CleBlobFileName, `

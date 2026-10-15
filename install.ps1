@@ -122,6 +122,15 @@ $cle = Join-Path $venv 'Scripts\cle.exe'
 if (Test-Path -LiteralPath $cle) { Add-Line 'cle package' 'OK' 'installed into .venv' }
 else { Add-Line 'cle package' 'FAIL' 'cle.exe not found after install'; exit 1 }
 
+# Make `cle` runnable from any directory (wrapper on the user PATH).
+try {
+    $shim = Register-CleGlobalCommand -VenvCleExe $cle
+    Add-Line 'cle on PATH' 'OK' "$shim (open a NEW terminal to use 'cle')"
+}
+catch {
+    Add-Line 'cle on PATH' 'WARN' "could not register global command: $($_.Exception.Message)"
+}
+
 # -- 3. Ollama daemon -------------------------------------------------------
 Write-CleLog 'Ollama daemon' -Level STEP
 $hostUrl = Get-CleConfiguredHost -RepoRoot $RepoRoot
