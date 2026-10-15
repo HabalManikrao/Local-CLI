@@ -300,12 +300,17 @@ def _render_routing(decision) -> None:
     _render_routing_line(decision.strategy, decision.models, decision.reason)
 
 
-def _render_code_review(ctx: AppContext, request: str, plan, diff: str) -> None:
-    """Have a second model review the proposed diff (sequential collaboration)."""
+def _render_code_review(ctx: AppContext, request: str, plan, diff: str, coder_model: str) -> None:
+    """Independent second-model review of the proposed diff (§5.2).
+
+    The reviewer only produces TEXT — it cannot modify files. We report whether
+    the review was actually independent (a different model from the coder), and
+    that it is advisory: objective verification is running the tests.
+    """
     system = (
         "You are a senior reviewer. Review the proposed code change for "
-        "correctness, risk, and whether it satisfies the request. Be concise; "
-        "list concrete concerns or say it looks good."
+        "correctness, regression risk, error handling, security, edge cases, and "
+        "missing tests. Be concise; list concrete concerns or say it looks good."
     )
     prompt = (
         f"Request: {request}\n\nGoal: {plan.goal}\n\n"
@@ -314,20 +319,30 @@ def _render_code_review(ctx: AppContext, request: str, plan, diff: str) -> None:
     )
     try:
         decision = ctx.orchestrator.route("architecture", prompt)
-        _render_routing_line("review", decision.models, "second-model review of the diff")
+        reviewer = decision.models[0]
+        independent = reviewer != coder_model
+        label = "second-model review" if independent else "review (NOT independent)"
+        _render_routing_line("review", [reviewer], label)
         res = ctx.orchestrator.run_text("architecture", prompt, system=system)
         ui.console.print("\n[bold]Review[/bold]:")
+        if not independent:
+            ui.console.print(
+                "[yellow]note[/yellow]: reviewer is the same model as the coder — "
+                "not an independent review. Objective check: run the tests.")
         ui.console.print(res.text, markup=False)
     except CleError as exc:
         ui.err_console.print(f"[yellow]review skipped[/yellow]: {escape(exc.message)}")
 
 
 def _render_runs(result) -> None:
-    """Show which models contributed and whether each succeeded (ensemble)."""
+    """Per-model status + real timing/retries, then the overall status (§F)."""
     for r in result.runs:
         mark = "[green]ok[/green]" if r.ok else "[red]fail[/red]"
-        detail = "" if r.ok else f" ({escape(r.error)})"
+        meta = f" {r.duration_s:.1f}s" + (f" x{r.attempts}" if r.attempts > 1 else "")
+        detail = meta if r.ok else f"{meta} ({escape(r.error)})"
         ui.err_console.print(f"[dim]  - {escape(r.model)}: {mark}{detail}[/dim]")
+    ui.err_console.print(
+        f"[dim]  status: {escape(result.status)} · {result.duration_s:.1f}s total[/dim]")
 
 
 # -- cle config show --------------------------------------------------------
@@ -836,7 +851,13 @@ def cmd_code(
 
     # Optional second-model review of the proposed change (collaboration).
     if review and ctx.orchestrator.settings.collaboration_enabled and preview.strip():
-        _render_code_review(ctx, request, plan, preview)
+        coder_model = model or ""
+        if not coder_model:
+            try:
+                coder_model = ctx.router.model_for_intent("code_generation")
+            except CleError:
+                coder_model = ""
+        _render_code_review(ctx, request, plan, preview, coder_model)
 
     if plan.validation_errors:
         ui.print_error(CleError(

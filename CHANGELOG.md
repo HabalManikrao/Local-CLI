@@ -6,6 +6,23 @@ adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Multi-model orchestration — Phase 14 hardening
+- **Correctness/safety:** an explicit `--model` override no longer silently
+  falls back to a different model (it reports the failure); orchestration config
+  is validated (bad strategy/priority/limits raise an actionable `ConfigError`);
+  a result-status taxonomy (`complete_success` / `partial_success` /
+  `fallback_success`) means a partial ensemble is never reported as a full
+  success; code review now reports whether it was **independent** (a different
+  model from the coder) and that it is advisory (objective check = tests).
+- **Observability:** per-model measured duration + retry attempts, and an overall
+  status line (no fabricated token/confidence values); richer routing notes.
+- **Honesty:** documented that a timed-out provider call is not actually
+  cancelled (Ollama has no cancellation); the provider timeout is the real bound.
+- **Benchmark:** new `scripts/bench_orchestration.py` (mock = offline/deterministic,
+  `--real` = installed Ollama). Real run showed ensemble 7–17× slower than single
+  and correct `partial_success` on a real member failure.
+- +12 tests (193 → 205). Docs: `docs/PHASE-14-{GAP-ANALYSIS,VALIDATION-REPORT,BENCHMARK-RESULTS}.md`.
+
 ### Dynamic multi-model orchestration
 - New `cle/models/orchestrator.py`: an adaptive engine on top of the existing
   provider/router/registry seams. It chooses *which* model(s) handle a task and

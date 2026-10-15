@@ -6,7 +6,7 @@ import pytest
 
 from cle.cli import commands
 from cle.config import init_project_config, load_config, set_project_value
-from cle.errors import ProviderError
+from cle.errors import ConfigError, ProviderError
 from cle.models.base import GenerateResult, Health, ModelInfo, ModelProvider
 from cle.models.orchestrator import (
     OrchestrationSettings,
@@ -224,3 +224,119 @@ def test_cmd_config_show(tmp_path, capsys):
     ctx = make_context(tmp_path, provider=ScriptedProvider(), models=_models())
     assert commands.cmd_config_show(ctx) == 0
     assert "orchestration" in capsys.readouterr().out
+
+
+# -- Phase 14: config validation --------------------------------------------
+
+def test_config_validation_rejects_bad_strategy():
+    s = OrchestrationSettings(strategy="magic")
+    with pytest.raises(ConfigError):
+        s.validate()
+
+
+def test_config_validation_rejects_bad_priority_and_limits():
+    with pytest.raises(ConfigError):
+        OrchestrationSettings(priority="fastest").validate()
+    with pytest.raises(ConfigError):
+        OrchestrationSettings(max_parallel_models=0).validate()
+    with pytest.raises(ConfigError):
+        OrchestrationSettings(timeout_seconds=0).validate()
+
+
+def test_from_config_raises_on_invalid(tmp_path):
+    init_project_config(tmp_path)
+    set_project_value(tmp_path, "orchestration.strategy", "bogus")
+    config = load_config(tmp_path)
+    with pytest.raises(ConfigError):
+        OrchestrationSettings.from_config(config)
+
+
+# -- Phase 14: override never silently falls back ---------------------------
+
+def test_override_does_not_fall_back(tmp_path):
+    prov = ScriptedProvider(
+        installed=_installed(("m-fast", "1B"), ("m-reason", "8B")),
+        fail=["badmodel"],
+    )
+    orch = _orch(tmp_path, prov, _models())
+    with pytest.raises(ProviderError):
+        orch.run_text("simple_question", "hi", model_override="badmodel")
+    # Only the override was tried (with retries) — never a different model.
+    assert set(prov.generate_calls) == {"badmodel"}
+
+
+def test_override_decision_flags(tmp_path):
+    orch = _orch(tmp_path, ScriptedProvider(), _models())
+    d = orch.route("simple_question", "hi", model_override="x:7b")
+    assert d.is_override is True and "fallback disabled" in " ".join(d.notes)
+
+
+# -- Phase 14: status taxonomy + timing/attempts ----------------------------
+
+def test_status_complete_on_clean_single(tmp_path):
+    orch = _orch(tmp_path, ScriptedProvider(), _models())
+    res = orch.run_text("simple_question", "hi")
+    assert res.status == "complete_success"
+    assert res.duration_s >= 0.0 and res.runs[0].attempts == 1
+
+
+def test_status_fallback_when_primary_fails(tmp_path):
+    prov = ScriptedProvider(installed=_installed(("m-fast", "1B"), ("m-reason", "8B")), fail=["m-fast"])
+    orch = _orch(tmp_path, prov, _models())
+    res = orch.run_text("simple_question", "hi")
+    assert res.status == "fallback_success"
+
+
+def test_status_partial_on_ensemble_member_failure(tmp_path):
+    prov = ScriptedProvider(
+        installed=_installed(("m-fast", "1B"), ("m-reason", "8B"), ("m-code", "8B")),
+        fail=["m-code"],
+    )
+    orch = _orch(tmp_path, prov, _models())
+    res = orch.run_text("simple_question", "compare", ensemble=True)
+    assert res.status == "partial_success"
+
+
+def test_run_records_retry_attempts(tmp_path):
+    prov = ScriptedProvider(flake={"m-fast": 1})
+    orch = _orch(tmp_path, prov, _models())
+    res = orch.run_text("simple_question", "hi")
+    assert res.runs[0].attempts == 2       # one retry recorded
+
+
+# -- Phase 14: deterministic routing ----------------------------------------
+
+def test_routing_is_deterministic(tmp_path):
+    prov = ScriptedProvider(installed=_installed(("m-fast", "1B"), ("m-reason", "8B"), ("m-code", "8B")))
+    orch = _orch(tmp_path, prov, _models())
+    d1 = orch.route("simple_question", "please refactor the whole thing")
+    d2 = orch.route("simple_question", "please refactor the whole thing")
+    assert (d1.strategy, d1.models, d1.escalated) == (d2.strategy, d2.models, d2.escalated)
+
+
+# -- Phase 14: code review is independent-aware and text-only ---------------
+
+class _Plan:
+    goal = "add validation"
+
+
+def test_code_review_reports_non_independence(tmp_path, capsys):
+    # coding and reasoning point at the SAME model -> review is not independent.
+    prov = ScriptedProvider()
+    ctx = make_context(tmp_path, provider=prov,
+                       models={"fast": "m-fast", "coding": "same:8b",
+                               "reasoning": "same:8b", "embedding": "m-embed"})
+    before = set(tmp_path.rglob("*"))
+    commands._render_code_review(ctx, "req", _Plan(), "some diff", coder_model="same:8b")
+    out = capsys.readouterr().out
+    assert "not an independent review" in out
+    # The reviewer only produced text — it must not have created/modified files.
+    assert set(tmp_path.rglob("*")) == before
+
+
+def test_code_review_independent_when_models_differ(tmp_path, capsys):
+    prov = ScriptedProvider()
+    ctx = make_context(tmp_path, provider=prov, models=_models())  # coding != reasoning
+    commands._render_code_review(ctx, "req", _Plan(), "some diff", coder_model="m-code")
+    out = capsys.readouterr().out
+    assert "not an independent review" not in out

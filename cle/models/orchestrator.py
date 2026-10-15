@@ -22,15 +22,23 @@ Design rules honoured here:
 
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 
 from ..config import Config
-from ..errors import CleError, ProviderError
+from ..errors import CleError, ConfigError, ProviderError
 from .base import GenerateResult, ModelProvider
 from .registry import ROLES, ModelRegistry
 from .router import ModelRouter
+
+# Result status taxonomy (Phase 14 §4.3): callers must be able to tell a partial
+# ensemble from a clean success, and a fallback from the primary succeeding.
+STATUS_COMPLETE = "complete_success"      # everything the strategy asked for ran OK
+STATUS_PARTIAL = "partial_success"        # some members failed; a result was still produced
+STATUS_FALLBACK = "fallback_success"      # the primary failed, a fallback model answered
+STATUS_FAILED = "failed"                  # nothing produced a usable result
 
 # Which capability each role implies. A model may hold several roles and so
 # gain several capabilities. Kept here (not keyed by model name) so nothing is
@@ -72,22 +80,55 @@ class OrchestrationSettings:
             val = config.get(f"orchestration.{path}")
             return default if val is None else val
 
-        return cls(
-            enabled=bool(g("enabled", True)),
-            strategy=str(g("strategy", "adaptive")),
-            max_models_per_task=int(g("limits.max_models_per_task", 3)),
-            max_parallel_models=int(g("limits.max_parallel_models", 3)),
-            timeout_seconds=int(g("limits.timeout_seconds", 120)),
-            max_retries=int(g("limits.max_retries", 2)),
-            automatic_routing=bool(g("routing.automatic", True)),
-            escalation_enabled=bool(g("routing.escalation_enabled", True)),
-            collaboration_enabled=bool(g("collaboration.enabled", True)),
-            review_code_changes=bool(g("collaboration.review_code_changes", True)),
-            ensemble_enabled=bool(g("ensemble.enabled", True)),
-            ensemble_count=int(g("ensemble.default_model_count", 3)),
-            priority=str(g("preferences.priority", "balanced")),
-            fallback_enabled=bool(g("fallback.enabled", True)),
-        )
+        try:
+            settings = cls(
+                enabled=bool(g("enabled", True)),
+                strategy=str(g("strategy", "adaptive")),
+                max_models_per_task=int(g("limits.max_models_per_task", 3)),
+                max_parallel_models=int(g("limits.max_parallel_models", 3)),
+                timeout_seconds=int(g("limits.timeout_seconds", 120)),
+                max_retries=int(g("limits.max_retries", 2)),
+                automatic_routing=bool(g("routing.automatic", True)),
+                escalation_enabled=bool(g("routing.escalation_enabled", True)),
+                collaboration_enabled=bool(g("collaboration.enabled", True)),
+                review_code_changes=bool(g("collaboration.review_code_changes", True)),
+                ensemble_enabled=bool(g("ensemble.enabled", True)),
+                ensemble_count=int(g("ensemble.default_model_count", 3)),
+                priority=str(g("preferences.priority", "balanced")),
+                fallback_enabled=bool(g("fallback.enabled", True)),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(
+                f"Invalid orchestration config: {exc}",
+                remedy="Check numeric fields under orchestration.limits in "
+                       ".cle/config.yaml (they must be integers).",
+            ) from exc
+        settings.validate()
+        return settings
+
+    def validate(self) -> None:
+        """Reject dangerous/unknown values with actionable messages (§4.1)."""
+        problems: list[str] = []
+        if self.strategy not in ("adaptive", "single"):
+            problems.append(f"strategy must be 'adaptive' or 'single', got '{self.strategy}'")
+        if self.priority not in ("speed", "balanced", "quality"):
+            problems.append(
+                f"preferences.priority must be speed|balanced|quality, got '{self.priority}'")
+        if self.max_models_per_task < 1:
+            problems.append("limits.max_models_per_task must be >= 1")
+        if self.max_parallel_models < 1:
+            problems.append("limits.max_parallel_models must be >= 1")
+        if self.timeout_seconds < 1:
+            problems.append("limits.timeout_seconds must be >= 1")
+        if self.max_retries < 0:
+            problems.append("limits.max_retries must be >= 0")
+        if self.ensemble_count < 1:
+            problems.append("ensemble.default_model_count must be >= 1")
+        if problems:
+            raise ConfigError(
+                "Invalid orchestration settings:\n- " + "\n- ".join(problems),
+                remedy="Fix the values under 'orchestration:' in .cle/config.yaml.",
+            )
 
 
 @dataclass(frozen=True)
@@ -106,24 +147,29 @@ class ModelProfile:
 
 @dataclass
 class ModelRun:
-    """Outcome of invoking one model once (for diagnostics)."""
+    """Outcome of invoking one model (for diagnostics/observability)."""
 
     model: str
     ok: bool
     text: str = ""
     error: str = ""
     role: str = ""
+    attempts: int = 1                   # how many provider calls (retries incl.)
+    duration_s: float = 0.0             # measured wall time for this model
 
 
 @dataclass
 class RoutingDecision:
-    """Why the orchestrator chose what it chose (observability)."""
+    """Why the orchestrator chose what it chose (observability, §3.3)."""
 
     strategy: str                       # single | ensemble | sequential
     models: list[str]
     reason: str
     complexity: str
     intent: str
+    is_override: bool = False           # explicit --model; fallback disabled
+    escalated: bool = False
+    notes: list[str] = field(default_factory=list)   # unresolved constraints etc.
 
 
 @dataclass
@@ -131,6 +177,8 @@ class OrchestrationResult:
     text: str
     decision: RoutingDecision
     runs: list[ModelRun] = field(default_factory=list)
+    status: str = STATUS_COMPLETE       # see STATUS_* taxonomy above
+    duration_s: float = 0.0
 
 
 def classify_complexity(intent: str, prompt: str) -> str:
@@ -244,12 +292,15 @@ class Orchestrator:
         """Decide strategy + model(s) for a task, explaining why."""
         complexity = classify_complexity(intent, prompt)
 
-        # 1. Explicit override always wins.
+        # 1. Explicit override always wins — and disables silent fallback, so an
+        #    unavailable override is reported rather than quietly swapped (§3.2).
+        #    Availability is checked at execution (no extra call just to explain).
         if model_override:
             return RoutingDecision(
                 strategy="single", models=[model_override],
                 reason=f"explicit --model override ({model_override})",
-                complexity=complexity, intent=intent,
+                complexity=complexity, intent=intent, is_override=True,
+                notes=["fallback disabled for explicit override"],
             )
 
         base = self._role_model(intent)
@@ -268,6 +319,7 @@ class Orchestrator:
         # 3. Adaptive escalation: simple tasks stay fast; complex ones escalate
         #    to the strongest available generative model.
         chosen, why = base, f"role '{self.router.role_for_intent(intent)}' for intent"
+        escalated = False
         if (
             self.settings.enabled
             and self.settings.automatic_routing
@@ -275,20 +327,20 @@ class Orchestrator:
         ):
             if self.settings.priority == "speed":
                 fast = self._fastest_generative()
-                if fast:
-                    chosen, why = fast, "priority=speed → fastest model"
+                if fast and fast != base:
+                    chosen, why, escalated = fast, "priority=speed → fastest model", True
             elif complexity == "complex" and self.settings.escalation_enabled:
                 strong = self._strongest_generative()
                 if strong and strong != base:
-                    chosen, why = strong, f"complex task → escalated to {strong}"
+                    chosen, why, escalated = strong, f"complex task → escalated to {strong}", True
             elif self.settings.priority == "quality":
                 strong = self._strongest_generative()
-                if strong:
-                    chosen, why = strong, "priority=quality → strongest model"
+                if strong and strong != base:
+                    chosen, why, escalated = strong, "priority=quality → strongest model", True
 
         return RoutingDecision(
             strategy="single", models=[chosen or base], reason=why,
-            complexity=complexity, intent=intent,
+            complexity=complexity, intent=intent, escalated=escalated,
         )
 
     # -- execution ----------------------------------------------------------
@@ -303,31 +355,36 @@ class Orchestrator:
         ensemble: bool = False,
     ) -> OrchestrationResult:
         """Route then execute, returning text + full decision/diagnostics."""
+        started = time.monotonic()
         decision = self.route(
             intent, prompt, model_override=model_override, ensemble=ensemble
         )
         if decision.strategy == "ensemble":
-            return self._run_ensemble(decision, prompt, system)
-        text, runs = self._run_single_with_fallback(decision.models[0], prompt, system)
-        return OrchestrationResult(text=text, decision=decision, runs=runs)
+            result = self._run_ensemble(decision, prompt, system)
+        else:
+            result = self._run_single(decision, prompt, system)
+        result.duration_s = round(time.monotonic() - started, 3)
+        return result
 
-    def _run_single_with_fallback(
-        self, model: str, prompt: str, system: str | None
-    ) -> tuple[str, list[ModelRun]]:
+    def _run_single(
+        self, decision: RoutingDecision, prompt: str, system: str | None
+    ) -> OrchestrationResult:
+        model = decision.models[0]
+        # Explicit overrides never fall back to a *different* model (§3.2).
+        allow_fallback = self.settings.fallback_enabled and not decision.is_override
+        candidates = [model] + (self._fallback_chain(model) if allow_fallback else [])
         runs: list[ModelRun] = []
-        candidates = [model] + self._fallback_chain(model)
         last_err: CleError | None = None
-        for cand in candidates:
-            try:
-                res = self._generate_with_retry(cand, prompt, system)
-                runs.append(ModelRun(model=cand, ok=True, text=res.text))
-                return res.text, runs
-            except CleError as exc:
-                runs.append(ModelRun(model=cand, ok=False, error=exc.message))
-                last_err = exc
-                if not self.settings.fallback_enabled:
-                    break
-        raise last_err or ProviderError("No model could handle the task.")
+        for i, cand in enumerate(candidates):
+            run = self._invoke(cand, prompt, system)
+            runs.append(run)
+            if run.ok:
+                status = STATUS_FALLBACK if i > 0 else STATUS_COMPLETE
+                return OrchestrationResult(
+                    text=run.text, decision=decision, runs=runs, status=status)
+            last_err = ProviderError(run.error)
+        # Nothing worked. Keep the original error; an override failure is explicit.
+        raise last_err or ProviderError(f"Model '{model}' could not handle the task.")
 
     def _run_ensemble(
         self, decision: RoutingDecision, prompt: str, system: str | None
@@ -340,29 +397,39 @@ class Orchestrator:
                 "All ensemble models failed.",
                 remedy="Check the Ollama daemon and the configured models.",
             )
+        all_ok = len(ok) == len(runs)
         if len(ok) == 1:
-            return OrchestrationResult(text=ok[0].text, decision=decision, runs=runs)
+            # Only one member answered — not a real ensemble; report honestly.
+            status = STATUS_COMPLETE if all_ok else STATUS_PARTIAL
+            return OrchestrationResult(
+                text=ok[0].text, decision=decision, runs=runs, status=status)
         synth = self._synthesise([(r.model, r.text) for r in ok], prompt)
-        return OrchestrationResult(text=synth, decision=decision, runs=runs)
+        return OrchestrationResult(
+            text=synth, decision=decision, runs=runs,
+            status=STATUS_COMPLETE if all_ok else STATUS_PARTIAL,
+        )
 
     def _parallel_generate(
         self, models: list[str], prompt: str, system: str | None
     ) -> list[ModelRun]:
+        # Concurrency is capped by max_parallel_models. NOTE (§4.2): fut.result
+        # timeout raises here, but the provider has no cancellation, so the
+        # underlying HTTP call keeps running until the provider's OWN timeout.
+        # The provider timeout is therefore the real wall-clock bound; this one
+        # only stops us *waiting*. We flag that in the error text.
         workers = max(1, min(self.settings.max_parallel_models, len(models)))
         runs: list[ModelRun] = []
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
-                pool.submit(self._generate_with_retry, m, prompt, system): m
-                for m in models
+                pool.submit(self._invoke, m, prompt, system): m for m in models
             }
             for fut, model in futures.items():
                 try:
-                    res = fut.result(timeout=self.settings.timeout_seconds)
-                    runs.append(ModelRun(model=model, ok=True, text=res.text))
+                    runs.append(fut.result(timeout=self.settings.timeout_seconds))
                 except FuturesTimeout:
-                    runs.append(ModelRun(model=model, ok=False, error="timed out"))
-                except CleError as exc:
-                    runs.append(ModelRun(model=model, ok=False, error=exc.message))
+                    runs.append(ModelRun(
+                        model=model, ok=False,
+                        error="timed out waiting (provider call may still be running)"))
                 except Exception as exc:  # defensive: never let a worker escape
                     runs.append(ModelRun(model=model, ok=False, error=str(exc)))
         return runs
@@ -392,17 +459,32 @@ class Orchestrator:
 
     # -- model invocation helpers ------------------------------------------
 
+    def _invoke(self, model: str, prompt: str, system: str | None) -> ModelRun:
+        """Call a model (with bounded retries), returning a non-raising ModelRun
+        that records attempts and measured duration."""
+        start = time.monotonic()
+        tries = 0
+        last: CleError | None = None
+        for _ in range(max(1, self.settings.max_retries + 1)):
+            tries += 1
+            try:
+                res = self.provider.generate(model, prompt, system=system)
+                return ModelRun(model=model, ok=True, text=res.text, attempts=tries,
+                                duration_s=round(time.monotonic() - start, 3))
+            except CleError as exc:
+                last = exc
+        return ModelRun(
+            model=model, ok=False, error=(last.message if last else "failed"),
+            attempts=tries, duration_s=round(time.monotonic() - start, 3),
+        )
+
     def _generate_with_retry(
         self, model: str, prompt: str, system: str | None
     ) -> GenerateResult:
-        attempts = max(1, self.settings.max_retries + 1)
-        last: CleError | None = None
-        for _ in range(attempts):
-            try:
-                return self.provider.generate(model, prompt, system=system)
-            except CleError as exc:
-                last = exc
-        raise last or ProviderError(f"Model '{model}' failed.")
+        run = self._invoke(model, prompt, system)
+        if run.ok:
+            return GenerateResult(text=run.text, model=model)
+        raise ProviderError(run.error)
 
     # -- selection helpers --------------------------------------------------
 
