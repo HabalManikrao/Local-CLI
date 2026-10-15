@@ -19,6 +19,7 @@ from cle.models.base import (
     ModelInfo,
     ModelProvider,
 )
+from cle.models.orchestrator import Orchestrator
 from cle.models.registry import ModelRegistry
 from cle.models.router import ModelRouter
 from cle.project import detect_project
@@ -84,6 +85,7 @@ def make_context(
     router = ModelRouter(config, registry)
     prov = provider or FakeProvider()
     audit = AuditLog(logs_root=root / "logs", project=str(root), enabled=False)
+    orchestrator = Orchestrator(prov, router, registry, config)
     return AppContext(
         config=config,
         project=project,
@@ -91,6 +93,7 @@ def make_context(
         registry=registry,
         router=router,
         audit=audit,
+        orchestrator=orchestrator,
     )
 
 

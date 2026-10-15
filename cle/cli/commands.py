@@ -221,7 +221,13 @@ def cmd_model_use(ctx: AppContext, role: str, model: str) -> int:
 
 # -- cle ask "<question>" ---------------------------------------------------
 
-def cmd_ask(ctx: AppContext, question: str | None, stdin_data: str | None = None) -> int:
+def cmd_ask(
+    ctx: AppContext,
+    question: str | None,
+    stdin_data: str | None = None,
+    model: str | None = None,
+    ensemble: bool = False,
+) -> int:
     # Combine the prompt argument with any piped stdin, so you can do:
     #   type error.log | cle ask "what is failing?"
     if stdin_data and question:
@@ -237,25 +243,115 @@ def cmd_ask(ctx: AppContext, question: str | None, stdin_data: str | None = None
                    'or pipe input:\n  type file.txt | cle ask "summarize this"',
         ))
         return 1
+
+    # Let the orchestrator decide the model/strategy (role-based by default,
+    # overridable, escalating, or ensemble). A plain ask still resolves to the
+    # fast role and streams, exactly as before.
     try:
-        model = ctx.router.model_for_intent("simple_question")
+        decision = ctx.orchestrator.route(
+            "simple_question", prompt, model_override=model, ensemble=ensemble
+        )
     except CleError as exc:
         ui.print_error(exc)
         return 1
-    ctx.audit.event("ask", intent="simple_question", model=model, request=prompt[:500])
-    # Stream token-by-token so the answer appears as it is generated (feels
-    # responsive, especially on CPU). markup=False: model text isn't Rich markup.
+    ctx.audit.event("ask", intent="simple_question",
+                    strategy=decision.strategy, models=decision.models)
+
+    if decision.strategy != "single":
+        # Ensemble: need full answers to compare, so no streaming.
+        _render_routing(decision)
+        try:
+            result = ctx.orchestrator.run_text(
+                "simple_question", prompt, model_override=model, ensemble=ensemble
+            )
+        except CleError as exc:
+            ui.print_error(exc)
+            return 1
+        _render_runs(result)
+        ui.console.print(result.text, markup=False)
+        return 0
+
+    # Single model: stream token-by-token (responsive, esp. on CPU).
+    if model or decision.reason.startswith("complex") or "escalated" in decision.reason:
+        _render_routing(decision)
+    chosen = decision.models[0]
     streamed = False
     try:
-        for chunk in ctx.provider.stream(model, [Message("user", prompt)]):
+        for chunk in ctx.provider.stream(chosen, [Message("user", prompt)]):
             streamed = True
             ui.console.print(chunk, end="", markup=False)
     except CleError as exc:
         if streamed:
-            ui.console.print()  # end the partial line before the error panel
+            ui.console.print()
         ui.print_error(exc)
         return 1
-    ui.console.print()  # trailing newline after the streamed answer
+    ui.console.print()
+    return 0
+
+
+def _render_routing_line(strategy: str, models: list[str], reason: str) -> None:
+    """One dim line explaining a routing choice (observability)."""
+    ui.err_console.print(
+        f"[dim]routing: {strategy} · {escape(', '.join(models))} · {escape(reason)}[/dim]"
+    )
+
+
+def _render_routing(decision) -> None:
+    _render_routing_line(decision.strategy, decision.models, decision.reason)
+
+
+def _render_code_review(ctx: AppContext, request: str, plan, diff: str) -> None:
+    """Have a second model review the proposed diff (sequential collaboration)."""
+    system = (
+        "You are a senior reviewer. Review the proposed code change for "
+        "correctness, risk, and whether it satisfies the request. Be concise; "
+        "list concrete concerns or say it looks good."
+    )
+    prompt = (
+        f"Request: {request}\n\nGoal: {plan.goal}\n\n"
+        f"Proposed diff:\n```diff\n{diff[:12000]}\n```\n\n"
+        "Review it."
+    )
+    try:
+        decision = ctx.orchestrator.route("architecture", prompt)
+        _render_routing_line("review", decision.models, "second-model review of the diff")
+        res = ctx.orchestrator.run_text("architecture", prompt, system=system)
+        ui.console.print("\n[bold]Review[/bold]:")
+        ui.console.print(res.text, markup=False)
+    except CleError as exc:
+        ui.err_console.print(f"[yellow]review skipped[/yellow]: {escape(exc.message)}")
+
+
+def _render_runs(result) -> None:
+    """Show which models contributed and whether each succeeded (ensemble)."""
+    for r in result.runs:
+        mark = "[green]ok[/green]" if r.ok else "[red]fail[/red]"
+        detail = "" if r.ok else f" ({escape(r.error)})"
+        ui.err_console.print(f"[dim]  - {escape(r.model)}: {mark}{detail}[/dim]")
+
+
+# -- cle config show --------------------------------------------------------
+
+def cmd_config_show(ctx: AppContext) -> int:
+    cfg = ctx.config
+    s = ctx.orchestrator.settings
+    table = ui.kv_table("cle config")
+    table.add_row("provider", f"{cfg.get('provider.type')} @ {cfg.get('provider.host')}")
+    table.add_row("timeout / num_ctx",
+                  f"{cfg.get('provider.timeout_seconds')}s / {cfg.get('provider.num_ctx')}")
+    for role, m in ctx.registry.all_roles().items():
+        table.add_row(f"models.{role}", m or "[dim]unset[/dim]")
+    table.add_row("orchestration",
+                  f"enabled={s.enabled}  strategy={s.strategy}  priority={s.priority}")
+    table.add_row("  limits",
+                  f"max_models={s.max_models_per_task}  parallel={s.max_parallel_models}  "
+                  f"timeout={s.timeout_seconds}s  retries={s.max_retries}")
+    table.add_row("  routing", f"automatic={s.automatic_routing}  escalation={s.escalation_enabled}")
+    table.add_row("  ensemble", f"enabled={s.ensemble_enabled}  count={s.ensemble_count}")
+    table.add_row("  collaboration",
+                  f"enabled={s.collaboration_enabled}  review_code={s.review_code_changes}")
+    table.add_row("  fallback", f"enabled={s.fallback_enabled}")
+    ui.console.print(table)
     return 0
 
 
@@ -707,13 +803,22 @@ def _render_plan(plan) -> None:
             ui.console.print(f"  ! {escape(str(r))}")
 
 
-def cmd_code(ctx: AppContext, request: str, yes: bool, no_apply: bool) -> int:
+def cmd_code(
+    ctx: AppContext,
+    request: str,
+    yes: bool,
+    no_apply: bool,
+    model: str | None = None,
+    review: bool = False,
+) -> int:
     agent = CodingAgent(
         ctx.project.root, ctx.provider, ctx.router, ctx.registry, ctx.config
     )
-    ctx.audit.event("code", request=request)
+    ctx.audit.event("code", request=request, model=model, review=review)
+    if model:
+        _render_routing_line("single", [model], f"explicit --model override ({model})")
     try:
-        plan = agent.plan(request)
+        plan = agent.plan(request, model=model)
     except CleError as exc:
         ui.print_error(exc)
         return 1
@@ -721,12 +826,17 @@ def cmd_code(ctx: AppContext, request: str, yes: bool, no_apply: bool) -> int:
     _render_plan(plan)
 
     # Show the concrete diff.
+    preview = ""
     if plan.edit_plan.ops:
         preview = plan.edit_plan.preview(ctx.project.root)
         if preview.strip():
             from rich.syntax import Syntax
             ui.console.print("\n[bold]Diff preview[/bold]:")
             ui.console.print(Syntax(preview, "diff", theme="ansi_dark", word_wrap=False))
+
+    # Optional second-model review of the proposed change (collaboration).
+    if review and ctx.orchestrator.settings.collaboration_enabled and preview.strip():
+        _render_code_review(ctx, request, plan, preview)
 
     if plan.validation_errors:
         ui.print_error(CleError(
@@ -855,7 +965,7 @@ def cmd_test(ctx: AppContext) -> int:
     return 0 if result.passed else 1
 
 
-def cmd_debug(ctx: AppContext) -> int:
+def cmd_debug(ctx: AppContext, multi_model: bool = False) -> int:
     guard = PermissionGuard(PermissionPolicy.from_config(ctx.config), approver=approve_all)
     result = TestAgent(ctx.project.root, guard).run(command=_test_command_override(ctx))
     if result.error:
@@ -866,9 +976,18 @@ def cmd_debug(ctx: AppContext) -> int:
         return 0
     _report_test_result(result)
     agent = DebugAgent(ctx.project.root, ctx.provider, ctx.router, ctx.registry, ctx.config)
-    ctx.audit.event("debug", failures=len(result.failures))
+    ctx.audit.event("debug", failures=len(result.failures), multi_model=multi_model)
     try:
-        diagnosis = agent.diagnose(result)
+        if multi_model:
+            # Several models diagnose independently, then a synthesiser reconciles.
+            system, prompt = agent.build_diagnosis_prompt(result)
+            decision = ctx.orchestrator.route("debugging", prompt, ensemble=True)
+            _render_routing(decision)
+            res = ctx.orchestrator.run_text("debugging", prompt, system=system, ensemble=True)
+            _render_runs(res)
+            diagnosis = res.text
+        else:
+            diagnosis = agent.diagnose(result)
     except CleError as exc:
         ui.print_error(exc)
         return 1

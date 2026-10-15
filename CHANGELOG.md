@@ -6,6 +6,27 @@ adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Dynamic multi-model orchestration
+- New `cle/models/orchestrator.py`: an adaptive engine on top of the existing
+  provider/router/registry seams. It chooses *which* model(s) handle a task and
+  *how* — **single** (default, legacy behaviour preserved), **ensemble**
+  (several models answer, a synthesiser reconciles them + flags disagreement),
+  **sequential review** (one model produces, another reviews a diff), with
+  availability-aware **fallback**, bounded **retries**, parallel execution, and
+  a routing decision that explains *why* a model was picked (observability).
+- Capabilities are discovered from role assignments (no hard-coded model names);
+  speed tiers from the provider's reported parameter size.
+- Config: new `orchestration:` block in `configs/default.yaml` (enabled,
+  strategy, limits, routing/escalation, collaboration, ensemble, preferences,
+  fallback) — all optional with safe defaults.
+- CLI: `cle ask --ensemble` / `--model`, `cle code --review` / `--model`,
+  `cle debug --multi-model`, and `cle config show`. Existing commands behave
+  exactly as before unless a flag is passed; `--model` always overrides routing.
+- +17 tests (routing, escalation, ensemble synthesis, partial failure, fallback,
+  retries, config defaults, CLI overrides). Verified live: a real 2-model
+  ensemble (tinyllama + qwen3:1.7b) synthesised an answer and noted disagreement.
+
+
 Hardening pass after validating the agent end-to-end against a real Ollama
 daemon (the test suite is fully mocked, so these only surfaced live).
 

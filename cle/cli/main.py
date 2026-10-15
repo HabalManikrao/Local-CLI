@@ -30,6 +30,16 @@ app = typer.Typer(
 model_app = typer.Typer(help="Inspect and configure model roles.")
 app.add_typer(model_app, name="model")
 
+# `cle config ...` subcommand group.
+config_app = typer.Typer(help="Inspect configuration (incl. orchestration).")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("show")
+def config_show(ctx: typer.Context) -> None:
+    """Show the effective configuration (provider, roles, orchestration)."""
+    _run(commands.cmd_config_show, _ctx(ctx))
+
 # `cle memory ...` subcommand group.
 memory_app = typer.Typer(
     help="Project-scoped memory (decisions, issues, conventions, commands).",
@@ -182,21 +192,26 @@ def code(
     request: str = typer.Argument(..., help="What you want changed."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply without prompting."),
     no_apply: bool = typer.Option(False, "--no-apply", help="Plan only; don't edit."),
+    model: str = typer.Option(None, "--model", help="Use a specific coding model."),
+    review: bool = typer.Option(False, "--review", help="Add a second-model review of the diff."),
 ) -> None:
     """Plan and (after approval) apply code changes for a request."""
-    _run(commands.cmd_code, _ctx(ctx), request, yes, no_apply)
+    _run(commands.cmd_code, _ctx(ctx), request, yes, no_apply, model, review)
 
 
 @app.command()
 def ask(
     ctx: typer.Context,
     question: str = typer.Argument(None, help="Your question. Optional if piping input."),
+    model: str = typer.Option(None, "--model", help="Use a specific model for this call."),
+    ensemble: bool = typer.Option(False, "--ensemble", help="Ask several models and synthesise."),
 ) -> None:
-    """Ask a one-shot question (routed to the 'fast' model).
+    """Ask a one-shot question (adaptive routing; streams the answer).
 
     Supports UNIX pipes: `type file.txt | cle ask "summarize this"`.
+    `--model` overrides routing; `--ensemble` compares several models.
     """
-    _run(commands.cmd_ask, _ctx(ctx), question, _read_piped_stdin())
+    _run(commands.cmd_ask, _ctx(ctx), question, _read_piped_stdin(), model, ensemble)
 
 
 @app.command()
@@ -212,9 +227,13 @@ def test(ctx: typer.Context) -> None:
 
 
 @app.command()
-def debug(ctx: typer.Context) -> None:
+def debug(
+    ctx: typer.Context,
+    multi_model: bool = typer.Option(
+        False, "--multi-model", help="Diagnose with several models, then synthesise."),
+) -> None:
     """Run tests and, if failing, diagnose the root cause (no changes)."""
-    _run(commands.cmd_debug, _ctx(ctx))
+    _run(commands.cmd_debug, _ctx(ctx), multi_model)
 
 
 @app.command(name="fix-tests")

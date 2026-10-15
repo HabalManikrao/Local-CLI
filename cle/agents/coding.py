@@ -81,8 +81,8 @@ class CodingPlan:
 
 
 class CodingAgent(BaseAgent):
-    def plan(self, request: str) -> CodingPlan:
-        model = self.router.model_for_intent("code_generation")
+    def plan(self, request: str, model: str | None = None) -> CodingPlan:
+        model = model or self.router.model_for_intent("code_generation")
 
         # Inspect + retrieve context (LOCAL evidence).
         files_inspected: list[str] = []

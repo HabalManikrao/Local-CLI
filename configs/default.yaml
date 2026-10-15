@@ -34,6 +34,32 @@ routing:
   embedding: embedding
   default: fast
 
+orchestration:
+  # Dynamic multi-model orchestration. Role-based routing above is always the
+  # fallback; when enabled, the orchestrator may escalate simple->strong models
+  # for hard tasks, run an ensemble (--ensemble), or add a review pass
+  # (--review). Existing commands behave as before unless a flag is passed.
+  enabled: true
+  strategy: adaptive          # adaptive | single
+  limits:
+    max_models_per_task: 3
+    max_parallel_models: 3
+    timeout_seconds: 120
+    max_retries: 2
+  routing:
+    automatic: true
+    escalation_enabled: true
+  collaboration:
+    enabled: true
+    review_code_changes: true
+  ensemble:
+    enabled: true
+    default_model_count: 3
+  preferences:
+    priority: balanced        # speed | balanced | quality
+  fallback:
+    enabled: true
+
 context:
   max_tokens: 8000          # sized for 8 GB VRAM (RTX 3060 Ti) headroom
   max_files: 40

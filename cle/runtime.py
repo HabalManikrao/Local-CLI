@@ -14,6 +14,7 @@ from .config import Config, load_config
 from .logging_setup import setup_logging
 from .models.base import ModelProvider
 from .models.ollama import OllamaProvider
+from .models.orchestrator import Orchestrator
 from .models.registry import ModelRegistry
 from .models.router import ModelRouter
 from .project import Project, detect_project
@@ -28,6 +29,7 @@ class AppContext:
     registry: ModelRegistry
     router: ModelRouter
     audit: AuditLog
+    orchestrator: Orchestrator
 
 
 def _build_provider(config: Config) -> ModelProvider:
@@ -63,6 +65,7 @@ def build_context(
     registry = ModelRegistry(config)
     router = ModelRouter(config, registry)
     provider = _build_provider(config)
+    orchestrator = Orchestrator(provider, router, registry, config)
 
     audit = AuditLog(
         logs_root=project.root / "logs",
@@ -76,4 +79,5 @@ def build_context(
         registry=registry,
         router=router,
         audit=audit,
+        orchestrator=orchestrator,
     )

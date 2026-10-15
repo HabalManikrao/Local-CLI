@@ -193,6 +193,28 @@ On CPU-only machines, prefer smaller models for `reasoning` to avoid long waits.
 
 ---
 
+## 9b. Multi-model orchestration
+
+CLE routes each task to the right model automatically (fast for simple, stronger
+for complex), and can coordinate several models when it helps:
+
+```powershell
+cle config show                                  # see the orchestration settings + roles
+cle ask "Compare REST vs gRPC" --ensemble        # several models answer; a synthesiser reconciles them
+cle ask "Explain this error" --model qwen3:1.7b  # force one specific model for this call
+cle code "Refactor auth" --review                # a second model reviews the proposed diff
+cle code "Add caching" --model llama3.1:8b        # force a coding model
+cle debug --multi-model                          # several models diagnose the failing tests, then synthesise
+```
+
+- Each run prints a dim `routing: …` line showing which model(s) were chosen and
+  why (observability).
+- `--model` always overrides automatic routing for that one command.
+- Defaults live under `orchestration:` in `configs/default.yaml` (strategy,
+  limits, ensemble count, `preferences.priority: speed|balanced|quality`, …).
+  Role-based routing (`cle model use`) is always the fallback, so plain commands
+  behave exactly as before.
+
 ## 10. Troubleshooting
 
 | Symptom | Fix |

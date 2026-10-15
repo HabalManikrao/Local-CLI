@@ -20,7 +20,15 @@ _SYSTEM = (
 
 
 class DebugAgent(BaseAgent):
-    def diagnose(self, result: TestRunResult, max_failures: int = 5) -> str:
+    def build_diagnosis_prompt(
+        self, result: TestRunResult, max_failures: int = 5
+    ) -> tuple[str, str]:
+        """Return (system, prompt) for diagnosing *result*.
+
+        Exposed so the orchestrator can run the same prompt through one model or
+        an ensemble (``cle debug --multi-model``) without duplicating prompt
+        construction.
+        """
         failures = result.failures[:max_failures]
         context_block = self._context_for(failures)
         failure_text = "\n".join(
@@ -41,8 +49,12 @@ class DebugAgent(BaseAgent):
             + f"Test output (tail):\n```\n{tail}\n```\n\n"
             "Explain the most likely root cause and the specific fix."
         )
+        return _SYSTEM, prompt
+
+    def diagnose(self, result: TestRunResult, max_failures: int = 5) -> str:
+        system, prompt = self.build_diagnosis_prompt(result, max_failures)
         model = self.router.model_for_intent("debugging")
-        return self.provider.generate(model, prompt, system=_SYSTEM).text
+        return self.provider.generate(model, prompt, system=system).text
 
     def fix_request(self, result: TestRunResult, max_failures: int = 5) -> str:
         """Build a natural-language request for the coding agent to fix tests."""
