@@ -1,0 +1,59 @@
+============================================================
+  Local CLE  -  START HERE
+============================================================
+
+This folder installs a local AI coding assistant on your
+Windows machine. Everything runs on your own computer -
+nothing is sent to the internet after setup.
+
+
+------------------------------------------------------------
+STEP 1  -  INSTALL   (one double-click)
+------------------------------------------------------------
+1. Double-click:   install.cmd
+2. A permission box appears  ->  click "Yes"
+3. Wait while it installs. When it says
+   "Press any key to close this window"  ->  you're done.
+
+It installs the tools, the program, and the AI models.
+Anything already on your machine is skipped automatically.
+
+Requirements: Windows 10 or 11, and internet for THIS
+first install only. Afterwards it works offline.
+
+
+------------------------------------------------------------
+STEP 2  -  RUN
+------------------------------------------------------------
+1. Open this folder.
+2. Click the address bar, type:   cmd   and press Enter.
+3. Try these:
+
+   .venv\Scripts\cle doctor
+       -> check everything is healthy
+
+   .venv\Scripts\cle ask "explain recursion"
+       -> ask a quick question
+
+   .venv\Scripts\cle explain somefile.py
+       -> explain one of your code files
+
+   .venv\Scripts\cle code "add input validation"
+       -> propose a change (shows a preview and asks
+          before changing anything)
+
+Tip - you can pipe text in:
+   type error.log | .venv\Scripts\cle ask "what is failing?"
+
+
+------------------------------------------------------------
+NEED MORE?
+------------------------------------------------------------
+Look in the docs folder:
+   docs\USAGE.md            - how to use it, day to day
+   docs\RUNNING-LOCALLY.md  - full setup walkthrough
+   docs\TROUBLESHOOTING.md  - if something goes wrong
+
+If a command says "not recognized" right after installing,
+close the window, open a new one, and try again.
+============================================================

@@ -33,6 +33,7 @@ New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
 # Top-level files the installer + build need on a fresh machine.
 $files = @(
+    'START-HERE.txt',   # plain-language quick start (first thing a user sees)
     'install.cmd',      # double-click entry point (self-elevates)
     'install.ps1',      # the installer
     'pyproject.toml',   # build metadata for `pip install -e .`
