@@ -23,6 +23,15 @@ first install only. Afterwards it works offline.
 
 
 ------------------------------------------------------------
+QUICK TEST  (optional, one double-click)
+------------------------------------------------------------
+After installing, double-click:   test-run.cmd
+It runs three quick checks (health, a question, a piped file)
+so you can confirm everything works. If you see answers, it's
+working.
+
+
+------------------------------------------------------------
 STEP 2  -  RUN
 ------------------------------------------------------------
 1. Open this folder.

@@ -36,6 +36,7 @@ $files = @(
     'START-HERE.txt',   # plain-language quick start (first thing a user sees)
     'install.cmd',      # double-click entry point (self-elevates)
     'install.ps1',      # the installer
+    'test-run.cmd',     # double-click quick test (doctor + ask + pipe)
     'pyproject.toml',   # build metadata for `pip install -e .`
     'README.md',        # required by pyproject (readme=...) and handy on arrival
     'CHANGELOG.md'
