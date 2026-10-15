@@ -6,6 +6,24 @@ adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Validated coding workflow + telemetry — Phase 15
+- **`cle code --validate`**: after applying a change, run the project's tests
+  (through the existing guarded `TestAgent`) against the **applied** change and
+  report an explicit status — `VALIDATED` / `VALIDATION_FAILED` (exit 1) /
+  `VALIDATION_SKIPPED` (no test suite). Failing tests are never reported as
+  success. `--review` stays advisory (a model opinion; does not run tests); every
+  `cle code` run now prints an explicit lifecycle `Status`.
+- **Telemetry**: `OrchestrationResult.telemetry()` aggregates model_calls,
+  members, successes/failures, retries, and wall-clock vs sum-of-model durations —
+  accurate for the **real** provider (not mock-only). Ensemble synthesis is
+  tracked as a labelled run, never counted as an ensemble member. The benchmark
+  harness now uses this.
+- **Autopilot** multi-model integration remains deferred (documented boundaries +
+  readiness gates in `docs/PHASE-15-AUTOPILOT-READINESS.md`).
+- **Offline**: bundle integrity re-verified (152/152 checksums OK); genuine
+  network-isolated acceptance marked BLOCKED (no disconnected machine available).
+- +5 tests (205 → 210). Docs: `docs/PHASE-15-*.md`.
+
 ### Multi-model orchestration — Phase 14 hardening
 - **Correctness/safety:** an explicit `--model` override no longer silently
   falls back to a different model (it reports the failure); orchestration config

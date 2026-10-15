@@ -97,16 +97,16 @@ def _build(real: bool):
     return Orchestrator(provider, ModelRouter(config, reg), reg, config), provider
 
 
-def _run(orch, provider, intent, prompt, ensemble):
-    before = len(getattr(provider, "calls", getattr(provider, "generate_calls", [])))
+def _run(orch, intent, prompt, ensemble):
     start = time.monotonic()
     try:
         res = orch.run_text(intent, prompt, ensemble=ensemble)
-        dur = time.monotonic() - start
-        calls = len(getattr(provider, "calls", getattr(provider, "generate_calls", []))) - before
-        return {"ok": True, "status": res.status, "latency_s": round(dur, 2),
-                "model_calls": calls, "strategy": res.decision.strategy,
-                "n_models": len([r for r in res.runs if r.ok])}
+        # Telemetry comes from the orchestrator's own ModelRun records, so
+        # model_calls is accurate for the REAL provider too (not mock-only).
+        t = res.telemetry()
+        return {"ok": True, "status": res.status, "latency_s": round(t["wall_s"], 2),
+                "model_calls": t["model_calls"], "strategy": res.decision.strategy,
+                "n_models": t["successes"]}
     except Exception as exc:  # noqa: BLE001 — benchmark records failures too
         return {"ok": False, "status": "failed", "error": str(exc)[:60],
                 "latency_s": round(time.monotonic() - start, 2)}
@@ -119,14 +119,14 @@ def main() -> int:
     args = ap.parse_args()
     mode = "REAL (Ollama)" if args.real else "MOCK (offline, deterministic)"
 
-    orch, provider = _build(args.real)
+    orch, _provider = _build(args.real)
     print(f"# Orchestration benchmark - {mode}")
     print(f"{'task':<20} {'strategy':<9} {'status':<17} {'lat(s)':>7} {'calls':>6} {'models':>7}")
     print("-" * 72)
     fixtures = FIXTURES[: args.limit] if args.limit else FIXTURES
     for name, intent, prompt in fixtures:
         for ens in (False, True):
-            r = _run(orch, provider, intent, prompt, ens)
+            r = _run(orch, intent, prompt, ens)
             strat = "ensemble" if ens else "single"
             if r["ok"]:
                 print(f"{name:<20} {strat:<9} {r['status']:<17} {r['latency_s']:>7} "

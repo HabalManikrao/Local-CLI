@@ -193,10 +193,16 @@ def code(
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply without prompting."),
     no_apply: bool = typer.Option(False, "--no-apply", help="Plan only; don't edit."),
     model: str = typer.Option(None, "--model", help="Use a specific coding model."),
-    review: bool = typer.Option(False, "--review", help="Add a second-model review of the diff."),
+    review: bool = typer.Option(False, "--review", help="Advisory second-model review of the diff."),
+    validate: bool = typer.Option(
+        False, "--validate", help="After applying, run the project's tests and report VALIDATED/VALIDATION_FAILED."),
 ) -> None:
-    """Plan and (after approval) apply code changes for a request."""
-    _run(commands.cmd_code, _ctx(ctx), request, yes, no_apply, model, review)
+    """Plan -> preview -> approve -> apply a code change.
+
+    --review adds an advisory model review (does not run tests). --validate runs
+    the project's tests against the applied change and reports an explicit status.
+    """
+    _run(commands.cmd_code, _ctx(ctx), request, yes, no_apply, model, review, validate)
 
 
 @app.command()

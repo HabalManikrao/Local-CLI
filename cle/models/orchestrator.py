@@ -180,6 +180,27 @@ class OrchestrationResult:
     status: str = STATUS_COMPLETE       # see STATUS_* taxonomy above
     duration_s: float = 0.0
 
+    def telemetry(self) -> dict[str, float | int | str]:
+        """Aggregate, provider-agnostic execution telemetry (§5.2).
+
+        Works for the real provider too (metrics come from the orchestrator's
+        own ModelRun records, not a mock-only counter). wall_s is measured
+        wall-clock; sum_model_s is the sum of per-call durations — for parallel
+        runs the latter exceeds the former.
+        """
+        members = [r for r in self.runs if r.role != "synthesizer"]
+        return {
+            "status": self.status,
+            "strategy": self.decision.strategy,
+            "model_calls": len(self.runs),           # includes a synthesis call
+            "members": len(members),
+            "successes": sum(1 for r in self.runs if r.ok),
+            "failures": sum(1 for r in self.runs if not r.ok),
+            "retries": sum(max(0, r.attempts - 1) for r in self.runs),
+            "wall_s": self.duration_s,
+            "sum_model_s": round(sum(r.duration_s for r in self.runs), 3),
+        }
+
 
 def classify_complexity(intent: str, prompt: str) -> str:
     """Heuristic task-complexity estimate: simple | moderate | complex."""
@@ -403,9 +424,11 @@ class Orchestrator:
             status = STATUS_COMPLETE if all_ok else STATUS_PARTIAL
             return OrchestrationResult(
                 text=ok[0].text, decision=decision, runs=runs, status=status)
-        synth = self._synthesise([(r.model, r.text) for r in ok], prompt)
+        synth_text, synth_run = self._synthesise([(r.model, r.text) for r in ok], prompt)
+        if synth_run is not None:
+            runs = runs + [synth_run]   # tracked as a labelled stage, not a "member"
         return OrchestrationResult(
-            text=synth, decision=decision, runs=runs,
+            text=synth_text, decision=decision, runs=runs,
             status=STATUS_COMPLETE if all_ok else STATUS_PARTIAL,
         )
 
@@ -434,8 +457,15 @@ class Orchestrator:
                     runs.append(ModelRun(model=model, ok=False, error=str(exc)))
         return runs
 
-    def _synthesise(self, answers: list[tuple[str, str]], question: str) -> str:
-        """Reconcile several independent answers with the strongest model."""
+    def _synthesise(
+        self, answers: list[tuple[str, str]], question: str
+    ) -> tuple[str, ModelRun | None]:
+        """Reconcile several independent answers with the strongest model.
+
+        Returns (text, synth_run). synth_run is labelled role='synthesizer' so
+        telemetry can distinguish it from ensemble members. On synthesis failure
+        we fall back to the first successful answer (status handled by caller).
+        """
         joined = "\n\n".join(
             f"--- Answer from model {i + 1} ({name}) ---\n{text}"
             for i, (name, text) in enumerate(answers)
@@ -451,11 +481,12 @@ class Orchestrator:
             f"Question:\n{question}\n\n{joined}\n\n"
             "Give the best synthesised answer, and one line on any disagreement."
         )
-        try:
-            return self._generate_with_retry(model, prompt, system).text
-        except CleError:
-            # Synthesis failed — fall back to the first successful answer.
-            return answers[0][1]
+        run = self._invoke(model, prompt, system)
+        run.role = "synthesizer"
+        if run.ok:
+            return run.text, run
+        # Synthesis failed — fall back to the first successful answer.
+        return answers[0][1], run
 
     # -- model invocation helpers ------------------------------------------
 

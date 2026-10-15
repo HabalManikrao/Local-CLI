@@ -818,6 +818,30 @@ def _render_plan(plan) -> None:
             ui.console.print(f"  ! {escape(str(r))}")
 
 
+# Validated-coding workflow statuses (Phase 15 §3.3). Distinct from the
+# orchestration result status; these describe a code change's lifecycle.
+CODE_NO_CHANGES = "NO_CHANGES"
+CODE_PROPOSED = "PROPOSED"                   # planned, not applied (--no-apply)
+CODE_APPLIED = "APPLIED"                     # applied, not objectively validated
+CODE_VALIDATED = "VALIDATED"                 # applied + tests passed
+CODE_VALIDATION_FAILED = "VALIDATION_FAILED"
+CODE_VALIDATION_SKIPPED = "VALIDATION_SKIPPED"   # no runnable test suite
+
+
+def _objective_validation(ctx: AppContext):
+    """Run the project's tests as objective validation (not model votes).
+
+    Uses the existing guarded TestAgent, so the test command goes through CLE's
+    permission policy. Returns (status, TestRunResult). A missing/undetectable
+    test system yields VALIDATION_SKIPPED — never a false VALIDATED.
+    """
+    guard = PermissionGuard(PermissionPolicy.from_config(ctx.config), approver=approve_all)
+    result = TestAgent(ctx.project.root, guard).run(command=_test_command_override(ctx))
+    if result.error:
+        return CODE_VALIDATION_SKIPPED, result
+    return (CODE_VALIDATED if result.passed else CODE_VALIDATION_FAILED), result
+
+
 def cmd_code(
     ctx: AppContext,
     request: str,
@@ -825,11 +849,12 @@ def cmd_code(
     no_apply: bool,
     model: str | None = None,
     review: bool = False,
+    validate: bool = False,
 ) -> int:
     agent = CodingAgent(
         ctx.project.root, ctx.provider, ctx.router, ctx.registry, ctx.config
     )
-    ctx.audit.event("code", request=request, model=model, review=review)
+    ctx.audit.event("code", request=request, model=model, review=review, validate=validate)
     if model:
         _render_routing_line("single", [model], f"explicit --model override ({model})")
     try:
@@ -869,10 +894,12 @@ def cmd_code(
 
     if not plan.edit_plan.ops:
         ui.console.print("\nNo file changes proposed.")
+        ui.console.print(f"[bold]Status[/bold]: {CODE_NO_CHANGES}")
         return 0
 
     if no_apply:
         ui.console.print("\n[dim]--no-apply: stopping after the plan.[/dim]")
+        ui.console.print(f"[bold]Status[/bold]: {CODE_PROPOSED}")
         return 0
 
     # Approval (once, for the whole batch).
@@ -919,8 +946,31 @@ def cmd_code(
         f"\nApplied {len(results)} change(s). Review with [bold]cle diff[/bold]; "
         "undo with [bold]cle rollback[/bold]."
     )
+
+    # Objective validation (Phase 15): run the project's tests against the FINAL
+    # applied change and report an explicit, honest status.
+    if validate:
+        ui.console.print("\n[bold]Objective validation[/bold] (running tests):")
+        status, result = _objective_validation(ctx)
+        _report_test_result(result)
+        ui.console.print(f"[bold]Status[/bold]: {status}")
+        ctx.audit.event("code_validate", status=status)
+        if status == CODE_VALIDATION_FAILED:
+            ui.console.print(
+                "[yellow]Change applied but tests fail.[/yellow] Attempt a bounded "
+                "repair with [bold]cle fix-tests[/bold], or undo with "
+                "[bold]cle rollback[/bold].")
+            return 1
+        if status == CODE_VALIDATION_SKIPPED:
+            ui.console.print(
+                "[dim]No runnable test suite detected — applied but NOT validated.[/dim]")
+        return 0
+
+    ui.console.print(f"[bold]Status[/bold]: {CODE_APPLIED}")
     if plan.tests_to_run:
-        ui.console.print("Next: run your tests — [bold]cle test[/bold].")
+        ui.console.print(
+            "Next: validate with [bold]cle test[/bold] (or re-run with "
+            "[bold]--validate[/bold]).")
     return 0
 
 

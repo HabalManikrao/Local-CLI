@@ -96,7 +96,19 @@ cle code "Rename the Foo class to Bar" --no-apply
 
 # skip the prompt (you trust it / running unattended)
 cle code "Add a docstring to utils.py" --yes
+
+# advisory second-model review of the diff (does NOT run tests)
+cle code "Refactor the parser" --review
+
+# apply, then run the project's tests and report VALIDATED / VALIDATION_FAILED
+cle code "Add null check" --validate
 ```
+
+Each `cle code` run ends with an explicit **Status**: `PROPOSED` (--no-apply),
+`APPLIED`, `VALIDATED`, `VALIDATION_FAILED` (tests failed — exit 1), or
+`VALIDATION_SKIPPED` (no test suite found). `--review` is a model's *opinion*;
+`--validate` is objective (your tests). On `VALIDATION_FAILED`, repair with
+`cle fix-tests` or undo with `cle rollback`.
 
 Safety net around edits:
 

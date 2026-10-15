@@ -122,6 +122,52 @@ def test_cmd_code_applies_with_yes(tmp_path, capsys):
     code = commands.cmd_code(ctx, "add greeting", yes=True, no_apply=False)
     assert code == 0
     assert (tmp_path / "hello.py").read_text() == "print('hi')\n"
+    assert "APPLIED" in capsys.readouterr().out      # explicit lifecycle status
+
+
+# -- validated coding workflow (Phase 15) -----------------------------------
+
+def _test_result(passed, error=None, failures=()):
+    from cle.tools.test_runner import BuildSystem, TestRunResult
+    return TestRunResult(
+        system=BuildSystem.PYTHON, command=["pytest"], returncode=0 if passed else 1,
+        passed=passed, output="out", failures=list(failures), error=error)
+
+
+@pytest.mark.integration
+def test_cmd_code_validate_passes(tmp_path, monkeypatch, capsys):
+    from cle.agents.testing import TestAgent
+    monkeypatch.setattr(TestAgent, "run", lambda self, command=None: _test_result(True))
+    ctx = make_context(tmp_path, provider=PlanProvider(PLAN), models={"coding": "c"})
+    code = commands.cmd_code(ctx, "add greeting", yes=True, no_apply=False, validate=True)
+    assert code == 0
+    assert (tmp_path / "hello.py").exists()          # change was applied...
+    assert "VALIDATED" in capsys.readouterr().out    # ...and objectively validated
+
+
+@pytest.mark.integration
+def test_cmd_code_validate_fails_is_not_success(tmp_path, monkeypatch, capsys):
+    from cle.agents.testing import TestAgent
+    from cle.tools.test_runner import TestFailure
+    monkeypatch.setattr(
+        TestAgent, "run",
+        lambda self, command=None: _test_result(False, failures=[TestFailure(name="t::x")]))
+    ctx = make_context(tmp_path, provider=PlanProvider(PLAN), models={"coding": "c"})
+    code = commands.cmd_code(ctx, "add greeting", yes=True, no_apply=False, validate=True)
+    assert code == 1                                 # failing validation is NOT success
+    assert "VALIDATION_FAILED" in capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_cmd_code_validate_skipped_when_no_tests(tmp_path, monkeypatch, capsys):
+    from cle.agents.testing import TestAgent
+    monkeypatch.setattr(
+        TestAgent, "run",
+        lambda self, command=None: _test_result(False, error="Could not detect a build/test system."))
+    ctx = make_context(tmp_path, provider=PlanProvider(PLAN), models={"coding": "c"})
+    code = commands.cmd_code(ctx, "add greeting", yes=True, no_apply=False, validate=True)
+    assert code == 0                                 # applied, honestly "not validated"
+    assert "VALIDATION_SKIPPED" in capsys.readouterr().out
 
 
 # -- robustness against real-model output shapes (regressions) --------------

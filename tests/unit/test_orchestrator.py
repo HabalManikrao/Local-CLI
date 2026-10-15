@@ -185,9 +185,13 @@ def test_ensemble_synthesises_from_multiple(tmp_path):
     orch = _orch(tmp_path, prov, _models())
     res = orch.run_text("simple_question", "compare approaches", ensemble=True)
     assert res.decision.strategy == "ensemble"
-    assert len([r for r in res.runs if r.ok]) >= 2      # several models answered
-    # synthesis ran on a strong model (an extra generate beyond the members)
-    assert len(prov.generate_calls) > len(res.runs)
+    members = [r for r in res.runs if r.role != "synthesizer"]
+    assert len([r for r in members if r.ok]) >= 2       # several members answered
+    # synthesis is tracked as a labelled run, not counted as a member.
+    synth = [r for r in res.runs if r.role == "synthesizer"]
+    assert len(synth) == 1
+    t = res.telemetry()
+    assert t["members"] == len(members) and t["model_calls"] == len(res.runs)
 
 
 def test_ensemble_tolerates_partial_failure(tmp_path):
@@ -340,3 +344,21 @@ def test_code_review_independent_when_models_differ(tmp_path, capsys):
     commands._render_code_review(ctx, "req", _Plan(), "some diff", coder_model="m-code")
     out = capsys.readouterr().out
     assert "not an independent review" not in out
+
+
+# -- Phase 15: telemetry aggregation (real-provider-safe) --------------------
+
+def test_telemetry_single(tmp_path):
+    orch = _orch(tmp_path, ScriptedProvider(), _models())
+    t = orch.run_text("simple_question", "hi").telemetry()
+    assert t["model_calls"] == 1 and t["members"] == 1
+    assert t["successes"] == 1 and t["failures"] == 0
+    assert t["wall_s"] >= 0.0 and t["sum_model_s"] >= 0.0
+
+
+def test_telemetry_counts_synthesis_separately(tmp_path):
+    prov = ScriptedProvider(installed=_installed(("m-fast", "1B"), ("m-reason", "8B"), ("m-code", "8B")))
+    orch = _orch(tmp_path, prov, _models())
+    t = orch.run_text("simple_question", "compare", ensemble=True).telemetry()
+    # model_calls counts the synthesis; members does not.
+    assert t["model_calls"] == t["members"] + 1
