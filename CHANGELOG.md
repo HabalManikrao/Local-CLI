@@ -6,6 +6,19 @@ adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Release candidate preparation — Phase 17
+- Prepared a `0.1.0` **release candidate** (not tagged/published). Version is
+  consistent across pyproject/runtime/CLI/metadata (single-sourced, all `0.1.0`).
+- Audit found the shipped **offline bundle is stale** (built 2026-09-08, predates
+  orchestration) — must be rebuilt from the current commit before an offline
+  release. The portable installer (`CLE-Install.zip`) was regenerated from source
+  (SHA256 recorded in the manifest).
+- CLI smoke tests pass; real local inference confirmed; offline bundle checksums
+  152/152. Genuine network-isolated install acceptance remains **BLOCKED**.
+- Docs: `PHASE-17-RELEASE-AUDIT`, `PHASE-17-INSTALLATION-ACCEPTANCE`,
+  `RELEASE-NOTES-0.1.0`, `RELEASE-CANDIDATE-MANIFEST`.
+- Recommendation: **READY WITH KNOWN LIMITATIONS — AUTHORIZATION REQUIRED**.
+
 ### Engineering evaluation + release readiness — Phase 16
 - `scripts/bench_engineering.py`: a reproducible, offline (no-LLM) benchmark of
   objective capability — symbol lookup and exact retrieval against ground truth
