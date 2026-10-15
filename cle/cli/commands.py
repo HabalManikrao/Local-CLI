@@ -221,18 +221,33 @@ def cmd_model_use(ctx: AppContext, role: str, model: str) -> int:
 
 # -- cle ask "<question>" ---------------------------------------------------
 
-def cmd_ask(ctx: AppContext, question: str) -> int:
+def cmd_ask(ctx: AppContext, question: str | None, stdin_data: str | None = None) -> int:
+    # Combine the prompt argument with any piped stdin, so you can do:
+    #   type error.log | cle ask "what is failing?"
+    if stdin_data and question:
+        prompt = f"{question}\n\n--- Input (stdin) ---\n{stdin_data}"
+    elif stdin_data:
+        prompt = stdin_data
+    elif question:
+        prompt = question
+    else:
+        ui.print_error(CleError(
+            "No question provided.",
+            remedy='Ask directly:\n  cle ask "your question"\n'
+                   'or pipe input:\n  type file.txt | cle ask "summarize this"',
+        ))
+        return 1
     try:
         model = ctx.router.model_for_intent("simple_question")
     except CleError as exc:
         ui.print_error(exc)
         return 1
-    ctx.audit.event("ask", intent="simple_question", model=model, request=question)
+    ctx.audit.event("ask", intent="simple_question", model=model, request=prompt[:500])
     # Stream token-by-token so the answer appears as it is generated (feels
     # responsive, especially on CPU). markup=False: model text isn't Rich markup.
     streamed = False
     try:
-        for chunk in ctx.provider.stream(model, [Message("user", question)]):
+        for chunk in ctx.provider.stream(model, [Message("user", prompt)]):
             streamed = True
             ui.console.print(chunk, end="", markup=False)
     except CleError as exc:

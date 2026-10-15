@@ -8,6 +8,7 @@ here and rendered once, so individual commands don't repeat error plumbing.
 from __future__ import annotations
 
 import logging
+import sys
 
 import typer
 
@@ -65,6 +66,21 @@ def _main(
 
 def _ctx(ctx: typer.Context) -> AppContext:
     return build_context(verbose=bool(ctx.obj and ctx.obj.get("verbose")))
+
+
+def _read_piped_stdin() -> str | None:
+    """Return piped stdin text, or None when stdin is an interactive terminal.
+
+    Guards isatty() so an interactive session never blocks waiting on input;
+    only data actually piped in (e.g. `type file | cle ask ...`) is read.
+    """
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return None
+        data = sys.stdin.read()
+    except (OSError, ValueError):
+        return None
+    return data if data.strip() else None
 
 
 def _run(fn, *args) -> None:
@@ -172,9 +188,15 @@ def code(
 
 
 @app.command()
-def ask(ctx: typer.Context, question: str = typer.Argument(..., help="Your question.")) -> None:
-    """Ask a one-shot question (routed to the 'fast' model)."""
-    _run(commands.cmd_ask, _ctx(ctx), question)
+def ask(
+    ctx: typer.Context,
+    question: str = typer.Argument(None, help="Your question. Optional if piping input."),
+) -> None:
+    """Ask a one-shot question (routed to the 'fast' model).
+
+    Supports UNIX pipes: `type file.txt | cle ask "summarize this"`.
+    """
+    _run(commands.cmd_ask, _ctx(ctx), question, _read_piped_stdin())
 
 
 @app.command()

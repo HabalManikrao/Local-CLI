@@ -40,6 +40,29 @@ def test_cmd_ask_streams_from_fast_model(project_dir, capsys):
     assert "what" in out and "2+2?" in out
 
 
+def test_cmd_ask_combines_piped_stdin(project_dir, capsys):
+    # cat file | cle ask "find errors"  -> question + stdin both reach the model.
+    provider = FakeProvider()
+    ctx = make_context(project_dir, provider=provider, models={"fast": "f"})
+    code = commands.cmd_ask(ctx, "find errors", stdin_data="ERROR: boom on line 3")
+    assert code == 0
+    assert provider.calls == [("stream", "f")]
+    out = capsys.readouterr().out
+    assert "find" in out and "ERROR" in out and "boom" in out   # both merged
+
+
+def test_cmd_ask_accepts_stdin_only(project_dir):
+    provider = FakeProvider()
+    ctx = make_context(project_dir, provider=provider, models={"fast": "f"})
+    assert commands.cmd_ask(ctx, None, stdin_data="just this data") == 0
+
+
+def test_cmd_ask_errors_with_no_input(project_dir, capsys):
+    ctx = make_context(project_dir, provider=FakeProvider(), models={"fast": "f"})
+    assert commands.cmd_ask(ctx, None, None) == 1
+    assert "No question provided" in capsys.readouterr().err
+
+
 # -- cle chat (interactive streaming REPL) ----------------------------------
 
 def _scripted_input(monkeypatch, lines):
