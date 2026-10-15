@@ -6,6 +6,21 @@ adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Engineering evaluation + release readiness — Phase 16
+- `scripts/bench_engineering.py`: a reproducible, offline (no-LLM) benchmark of
+  objective capability — symbol lookup and exact retrieval against ground truth
+  established from the real source. Measured: symbol lookup **10/10 (100%)**,
+  exact-retrieval **recall 1.00**.
+- Controlled real-model evaluation of `cle code --validate` on a disposable
+  seeded-defect fixture: CLE diagnosed the bug, modified only the target file
+  through the guarded path, ran objective tests, and reported **VALIDATED**
+  (confirmed by an independent test run).
+- Multi-model cost quantified (ensemble 7–17× single-model latency; quality gain
+  unproven on this small sample) → single-model stays the default; ensemble/review
+  remain opt-in.
+- Release recommendation: **READY WITH KNOWN LIMITATIONS** (docs/PHASE-16-*).
+  No tag/release created (requires explicit authorization).
+
 ### Validated coding workflow + telemetry — Phase 15
 - **`cle code --validate`**: after applying a change, run the project's tests
   (through the existing guarded `TestAgent`) against the **applied** change and
