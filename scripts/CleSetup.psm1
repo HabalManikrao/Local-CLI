@@ -154,6 +154,27 @@ function Get-CleConfiguredHost {
     return $default
 }
 
+function Get-CleVersion {
+    <# Authoritative CLE version, single-sourced from cle/__init__.py
+       (__version__). pyproject uses dynamic version, so do NOT grep it for a
+       literal. Falls back to a literal pyproject version, then '0.0.0'. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Repo)
+    $init = Join-Path $Repo 'cle\__init__.py'
+    if (Test-Path -LiteralPath $init) {
+        foreach ($line in (Get-Content -LiteralPath $init)) {
+            if ($line -match '^\s*__version__\s*=\s*["'']([^"'']+)["'']') { return $Matches[1] }
+        }
+    }
+    $pp = Join-Path $Repo 'pyproject.toml'
+    if (Test-Path -LiteralPath $pp) {
+        foreach ($line in (Get-Content -LiteralPath $pp)) {
+            if ($line -match '^\s*version\s*=\s*"([^"]+)"') { return $Matches[1] }
+        }
+    }
+    return '0.0.0'
+}
+
 function Get-CleRecommendedModels {
     <# Single source of truth for default role -> model mapping. Chosen from
        models already pulled locally so a fresh install needs no downloads. #>
@@ -519,7 +540,7 @@ Export-ModuleMember -Function `
     ConvertTo-CleVersion, Test-CleVersionAtLeast, `
     Get-CleModelNames, Test-CleModelInstalled, `
     ConvertFrom-CleHostUrl, Get-CleConfiguredHost, `
-    Get-CleRecommendedModels, Get-CleApproxModelSizeGB, `
+    Get-CleVersion, Get-CleRecommendedModels, Get-CleApproxModelSizeGB, `
     Test-CleCommand, Invoke-CleCapture, Get-ClePython, Get-CleGpu, `
     Get-CleRamGB, Test-CleAdmin, Update-CleProcessPath, Register-CleGlobalCommand, `
     Test-CleOllamaApi, Wait-CleOllamaApi, Install-CleWingetPackage, `

@@ -88,6 +88,13 @@ Write-Host 'Get-CleConfiguredHost'
 $cfgHost = Get-CleConfiguredHost -RepoRoot $Root
 Assert-Equal 'reads provider.host' 'http://127.0.0.1:11434' $cfgHost
 
+# -- Version resolution (single-sourced from cle/__init__.py) ---------------
+Write-Host 'Get-CleVersion'
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+Assert-Equal 'version from __init__' '0.1.0' (Get-CleVersion -Repo $repoRoot)
+# Dynamic pyproject (no literal `version = "x"`) must NOT fall back to 0.0.0.
+Assert-True  ((Get-CleVersion -Repo $repoRoot) -ne '0.0.0') 'not 0.0.0 fallback'
+
 # -- Recommended models -----------------------------------------------------
 Write-Host 'Get-CleRecommendedModels / sizes'
 $rec = Get-CleRecommendedModels

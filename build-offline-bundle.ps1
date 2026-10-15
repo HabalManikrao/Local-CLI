@@ -66,14 +66,8 @@ if ($Help) {
 # Helpers
 # --------------------------------------------------------------------------
 
-function Get-CleVersionFromPyproject {
-    param([string]$Repo)
-    $p = Join-Path $Repo 'pyproject.toml'
-    foreach ($line in (Get-Content -LiteralPath $p)) {
-        if ($line -match '^\s*version\s*=\s*"([^"]+)"') { return $Matches[1] }
-    }
-    return '0.0.0'
-}
+# Version resolution lives in CleSetup.psm1 (Get-CleVersion), so it is unit-tested
+# and single-sourced from cle/__init__.py (pyproject uses a dynamic version).
 
 function Get-CleConfigRoleModels {
     param([string]$Repo)
@@ -137,7 +131,7 @@ function Save-CleDownload {
 # Preflight
 # --------------------------------------------------------------------------
 
-$cleVersion = Get-CleVersionFromPyproject -Repo $RepoRoot
+$cleVersion = Get-CleVersion -Repo $RepoRoot
 $bundleName = "CLE-OFFLINE-BUNDLE-$cleVersion"
 if (-not $OutputRoot) { $OutputRoot = Join-Path $RepoRoot 'dist' }
 $Bundle = Join-Path $OutputRoot $bundleName
