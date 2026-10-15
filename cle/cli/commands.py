@@ -228,13 +228,19 @@ def cmd_ask(ctx: AppContext, question: str) -> int:
         ui.print_error(exc)
         return 1
     ctx.audit.event("ask", intent="simple_question", model=model, request=question)
+    # Stream token-by-token so the answer appears as it is generated (feels
+    # responsive, especially on CPU). markup=False: model text isn't Rich markup.
+    streamed = False
     try:
-        result = ctx.provider.generate(model, question)
+        for chunk in ctx.provider.stream(model, [Message("user", question)]):
+            streamed = True
+            ui.console.print(chunk, end="", markup=False)
     except CleError as exc:
+        if streamed:
+            ui.console.print()  # end the partial line before the error panel
         ui.print_error(exc)
         return 1
-    # markup=False: model output may contain brackets that are not Rich markup.
-    ui.console.print(result.text, markup=False)
+    ui.console.print()  # trailing newline after the streamed answer
     return 0
 
 

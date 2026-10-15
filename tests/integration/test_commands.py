@@ -28,12 +28,16 @@ def test_cmd_model_use_rejects_bad_role(project_dir):
     assert commands.cmd_model_use(ctx, "wizard", "x") == 1
 
 
-def test_cmd_ask_routes_to_fast_model(project_dir):
+def test_cmd_ask_streams_from_fast_model(project_dir, capsys):
     provider = FakeProvider()
     ctx = make_context(project_dir, provider=provider, models={"fast": "fastmodel"})
     code = commands.cmd_ask(ctx, "what is 2+2?")
     assert code == 0
-    assert provider.calls == [("generate", "fastmodel")]
+    # ask now streams (token-by-token) via the fast model, not a one-shot generate.
+    assert provider.calls == [("stream", "fastmodel")]
+    # FakeProvider.stream echoes the question's words as they "arrive".
+    out = capsys.readouterr().out
+    assert "what" in out and "2+2?" in out
 
 
 # -- cle chat (interactive streaming REPL) ----------------------------------
